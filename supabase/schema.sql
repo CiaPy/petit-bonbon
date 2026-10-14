@@ -80,7 +80,25 @@ create table if not exists public.reports (
   created_at   timestamptz not null default now()
 );
 
+-- ---------- Réponses et mini-conversations -----------------------------
+-- Un bonbon peut être « renvoyé » en réponse à un autre (une fois par bonbon reçu)
+alter table public.bonbons add column if not exists reply_to uuid references public.bonbons(id) on delete set null;
+create index if not exists bonbons_reply_idx on public.bonbons (reply_to);
+
+-- Mini-conversation : uniquement des phrases choisies dans une liste (phrase_id)
+create table if not exists public.messages (
+  id            uuid primary key default gen_random_uuid(),
+  sender_id     uuid not null references public.profiles(id) on delete cascade,
+  recipient_id  uuid not null references public.profiles(id) on delete cascade,
+  phrase_id     int  not null check (phrase_id between 0 and 29),
+  created_at    timestamptz not null default now()
+);
+create index if not exists messages_pair_idx on public.messages (sender_id, recipient_id, created_at desc);
+create index if not exists messages_time_idx on public.messages (created_at);
+
 -- ---------- Verrouillage : aucun accès direct aux tables -----------------
+alter table public.messages     enable row level security;
+revoke all on public.messages from anon, authenticated;
 alter table public.app_settings enable row level security;
 alter table public.profiles     enable row level security;
 alter table public.sessions     enable row level security;
@@ -312,9 +330,11 @@ begin
 end $$;
 
 -- Bonbons reçus (30 derniers jours)
+drop function if exists public.inbox();
 create or replace function public.inbox()
 returns table (id uuid, sender_pseudo text, sender_home_city text, local boolean,
-               compliment_id int, status text, created_at timestamptz)
+               compliment_id int, status text, created_at timestamptz,
+               is_reply boolean, replied boolean, can_reply boolean)
 language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid();
 begin
@@ -322,7 +342,13 @@ begin
   return query
   select b.id, b.sender_pseudo, b.sender_home_city,
          public.norm_city(b.sender_home_city) = public.norm_city(b.sender_current_city),
-         b.compliment_id, b.status, b.created_at
+         b.compliment_id, b.status, b.created_at,
+         b.reply_to is not null,
+         exists (select 1 from public.bonbons r where r.reply_to = b.id),
+         (b.status <> 'reported'
+          and b.created_at > now() - interval '24 hours'
+          and not exists (select 1 from public.bonbons r where r.reply_to = b.id)
+          and not public.blocked_between(uid, b.sender_id))
   from public.bonbons b
   where b.recipient_id = uid
     and b.created_at > now() - interval '30 days'
@@ -331,6 +357,113 @@ begin
                         where k.blocker_id = uid and k.blocked_id = b.sender_id))
   order by b.created_at desc
   limit 100;
+end $$;
+
+-- Renvoyer un bonbon en réponse à un bonbon reçu (une seule fois, dans les 24 h)
+create or replace function public.reply_bonbon(p_bonbon_id uuid, p_compliment int)
+returns void language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); problem text; me public.sessions%rowtype;
+  orig public.bonbons%rowtype; tp public.profiles%rowtype; lim int;
+begin
+  problem := public.access_problem(uid);
+  if problem is not null then raise exception '%', problem; end if;
+  if p_compliment is null or p_compliment not between 0 and 11 then raise exception 'GONE'; end if;
+  select * into me from public.sessions where user_id = uid and expires_at > now();
+  if not found then raise exception 'NO_SESSION'; end if;
+  select * into orig from public.bonbons where id = p_bonbon_id and recipient_id = uid;
+  if not found or orig.status = 'reported' or orig.created_at < now() - interval '24 hours'
+  then raise exception 'GONE'; end if;
+  select * into tp from public.profiles where id = orig.sender_id;
+  if tp.banned or not tp.receive_on or public.blocked_between(uid, orig.sender_id) then raise exception 'GONE'; end if;
+  if exists (select 1 from public.bonbons where reply_to = orig.id) then raise exception 'ALREADY'; end if;
+  select daily_send_limit into lim from public.app_settings where id = 1;
+  if (select count(*) from public.bonbons
+      where sender_id = uid and created_at > now() - interval '24 hours') >= lim
+  then raise exception 'LIMIT'; end if;
+  insert into public.bonbons (sender_id, recipient_id, sender_pseudo, sender_home_city,
+                              sender_current_city, recipient_pseudo, compliment_id, reply_to)
+  values (uid, orig.sender_id, me.pseudo, me.home_city, me.current_city, orig.sender_pseudo, p_compliment, orig.id);
+end $$;
+
+-- Une mini-conversation est ouverte entre deux personnes quand :
+-- leurs deux identités du jour sont actives, elles se sont envoyé chacune un bonbon
+-- depuis le début de ces identités, et aucune n'a bloqué l'autre.
+create or replace function public.chat_open(a uuid, b uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1
+    from public.sessions sa
+    join public.sessions sb on sb.user_id = b and sb.expires_at > now()
+    join public.profiles pa on pa.id = a
+    join public.profiles pb on pb.id = b
+    where sa.user_id = a and sa.expires_at > now()
+      and not pa.banned and not pb.banned
+      and not public.blocked_between(a, b)
+      and exists (select 1 from public.bonbons x where x.sender_id = a and x.recipient_id = b
+                  and x.created_at >= greatest(sa.created_at, sb.created_at))
+      and exists (select 1 from public.bonbons y where y.sender_id = b and y.recipient_id = a
+                  and y.created_at >= greatest(sa.created_at, sb.created_at))
+  )
+$$;
+
+-- Mes échanges ouverts (on désigne l'autre par l'identifiant de son identité du jour)
+create or replace function public.conversations()
+returns table (session_id uuid, pseudo text, moods text[], last_phrase int, last_from_me boolean, last_at timestamptz)
+language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); me public.sessions%rowtype;
+begin
+  if public.access_problem(uid) is not null then return; end if;
+  select * into me from public.sessions where user_id = uid and expires_at > now();
+  if not found then return; end if;
+  return query
+  select s.id, s.pseudo, s.moods, m.phrase_id, m.sender_id = uid, m.created_at
+  from public.sessions s
+  left join lateral (
+    select mm.phrase_id, mm.sender_id, mm.created_at from public.messages mm
+    where ((mm.sender_id = uid and mm.recipient_id = s.user_id) or (mm.sender_id = s.user_id and mm.recipient_id = uid))
+      and mm.created_at >= greatest(me.created_at, s.created_at)
+    order by mm.created_at desc limit 1) m on true
+  where s.expires_at > now() and s.user_id <> uid
+    and s.user_id in (select bb.sender_id from public.bonbons bb where bb.recipient_id = uid and bb.created_at > now() - interval '24 hours')
+    and public.chat_open(uid, s.user_id)
+  order by coalesce(m.created_at, s.created_at) desc;
+end $$;
+
+-- Les messages d'un échange
+create or replace function public.thread(p_session_id uuid)
+returns table (mine boolean, phrase_id int, created_at timestamptz)
+language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); me public.sessions%rowtype; them public.sessions%rowtype;
+begin
+  if public.access_problem(uid) is not null then raise exception 'AUTH'; end if;
+  select * into me from public.sessions where user_id = uid and expires_at > now();
+  select * into them from public.sessions where id = p_session_id and expires_at > now();
+  if me.id is null or them.id is null or not public.chat_open(uid, them.user_id) then raise exception 'GONE'; end if;
+  return query
+  select m.sender_id = uid, m.phrase_id, m.created_at
+  from public.messages m
+  where ((m.sender_id = uid and m.recipient_id = them.user_id) or (m.sender_id = them.user_id and m.recipient_id = uid))
+    and m.created_at >= greatest(me.created_at, them.created_at)
+  order by m.created_at asc
+  limit 200;
+end $$;
+
+-- Envoyer une phrase toute faite
+create or replace function public.send_phrase(p_session_id uuid, p_phrase int)
+returns void language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); problem text; them public.sessions%rowtype;
+begin
+  problem := public.access_problem(uid);
+  if problem is not null then raise exception '%', problem; end if;
+  if p_phrase is null or p_phrase not between 0 and 29 then raise exception 'GONE'; end if;
+  select * into them from public.sessions where id = p_session_id and expires_at > now();
+  if not found or them.user_id = uid or not public.chat_open(uid, them.user_id) then raise exception 'GONE'; end if;
+  if exists (select 1 from public.messages where sender_id = uid and recipient_id = them.user_id
+             and created_at > now() - interval '2 seconds') then raise exception 'SLOW'; end if;
+  if (select count(*) from public.messages where sender_id = uid and recipient_id = them.user_id
+      and created_at > now() - interval '24 hours') >= 60 then raise exception 'LIMIT_CHAT'; end if;
+  insert into public.messages (sender_id, recipient_id, phrase_id) values (uid, them.user_id, p_phrase);
+  delete from public.messages where created_at < now() - interval '2 days';  -- rien n'est gardé longtemps
 end $$;
 
 -- Bonbons envoyés (pour voir les « merci »)
@@ -433,8 +566,9 @@ grant execute on function
   public.discover(), public.send_bonbon(uuid, int),
   public.inbox(), public.sent(), public.thank_bonbon(uuid),
   public.report(text, uuid, uuid), public.block_only(uuid, uuid), public.update_bio(text), public.update_settings(boolean, boolean),
+  public.reply_bonbon(uuid, int), public.conversations(), public.thread(uuid), public.send_phrase(uuid, int),
   public.delete_account()
 to authenticated;
-revoke execute on function public.text_problem(text, boolean), public.city_ready(text) from authenticated;
+revoke execute on function public.text_problem(text, boolean), public.city_ready(text), public.chat_open(uuid, uuid) from authenticated;
 revoke execute on function public.handle_new_user(), public.access_problem(uuid),
   public.blocked_between(uuid, uuid) from authenticated;

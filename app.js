@@ -27,6 +27,22 @@ const COMPLIMENTS = [
 // Doit correspondre à la liste « allowed » de start_session dans schema.sql
 const MOODS = ['Joyeux·se', 'Rêveur·se', 'Curieux·se', 'Calme', 'Timide', 'Triste', 'Pas dans mon assiette'];
 const CITIES = ['Paris', 'Marseille', 'Lyon', 'Toulouse', 'Nice', 'Nantes', 'Montpellier', 'Strasbourg', 'Bordeaux', 'Lille', 'Rennes', 'Reims', 'Toulon', 'Saint-Étienne', 'Le Havre', 'Grenoble', 'Dijon', 'Angers', 'Nîmes', 'Clermont-Ferrand', 'Orléans', 'Tours', 'Brest', 'Limoges', 'Amiens', 'Metz', 'Perpignan', 'Besançon', 'Caen', 'Rouen', 'Nancy', 'Avignon', 'La Rochelle', 'Poitiers', 'Pau', 'Bayonne', 'Annecy', 'Bruxelles', 'Genève', 'Lausanne', 'Montréal'];
+// Phrases de la mini-conversation. L'ordre compte (la base stocke le numéro, 30 max) :
+// ne jamais réordonner, seulement ajouter à la fin.
+const PHRASES = [
+  'Coucou !',
+  'Merci pour ton bonbon !',
+  'Tu fais quoi de beau aujourd’hui ?',
+  'J’adore ta ville !',
+  'Moi aussi !',
+  'Haha !',
+  'Tu m’as fait sourire.',
+  'Belle journée à toi !',
+  'Bonne soirée !',
+  'Prends soin de toi.',
+  'C’était doux, merci.',
+  'À une prochaine, peut-être !',
+];
 const REASONS = ['Message ou profil déplacé', 'Contenu sexuel', 'Je pense que c’est un·e mineur·e', 'Insistance ou harcèlement', 'Autre chose me met mal à l’aise'];
 // Options réservées à l'abonnement Premium (pas encore disponibles)
 const PREMIUM_PRICE = '2,99 € / mois';
@@ -45,6 +61,8 @@ const ERRORS = {
   BANNED: 'Ce compte a été suspendu suite à des signalements.',
   LIMIT: 'Tu as envoyé tous tes bonbons pour aujourd’hui. Reviens demain !',
   ALREADY: 'Tu as déjà envoyé un bonbon à cette personne aujourd’hui.',
+  SLOW: 'Doucement 🍬 Laisse une petite seconde entre deux messages.',
+  LIMIT_CHAT: 'Vous avez beaucoup échangé aujourd’hui. Reprenez demain !',
   WEEKLY: 'Tu as déjà offert plusieurs bonbons à cette personne cette semaine. Laisse-lui un peu d’air 🍬',
   BAD_TEXT: 'Ton surnom, tes quelques mots ou ta ville contient un contact (numéro, réseau social, lien) ou un mot interdit. Modifie-le pour continuer.',
   GONE: 'Cette personne n’est plus disponible.',
@@ -109,6 +127,7 @@ const S = {
   target: null, pick: 0, lastSentText: '',
   report: null,            // { bonbonId?, sessionId?, pseudo }
   premium: false,          // feuille « Premium » ouverte
+  convs: [], chat: null, thread: [],   // mini-conversations
   banner: 0, seenInbox: null,
 };
 
@@ -140,6 +159,13 @@ async function rpc(name, args) {
   if (error) throw error;
   return data;
 }
+const seenKey = (sid) => 'pb_seen_' + sid;
+function convUnread(c) {
+  if (!c.last_at || c.last_from_me) return false;
+  let seen = null; try { seen = localStorage.getItem(seenKey(c.session_id)); } catch (_) {}
+  return !seen || new Date(c.last_at) > new Date(seen);
+}
+function markSeen(c) { if (c && c.last_at) { try { localStorage.setItem(seenKey(c.session_id), c.last_at); } catch (_) {} } }
 const timeAgo = (iso) => {
   const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
   if (m < 1) return 'à l’instant';
@@ -332,16 +358,16 @@ const cityLabel = (s) => (s && s.session ? s.session.current_city : '');
 
 V.main = () => {
   const s = S.status.session;
-  const unread = S.inbox.filter((m) => m.status === 'open').length;
+  const unread = S.inbox.filter((m) => m.status === 'open').length + S.convs.filter(convUnread).length;
   const body = (V['tab_' + S.tab] || V.tab_discover)();
-  const navOn = (t) => (S.tab === t || (t === 'discover' && (S.tab === 'send' || S.tab === 'sentok')) ? 'aria-current="page"' : '');
+  const navOn = (t) => (S.tab === t || (t === 'discover' && (S.tab === 'send' || S.tab === 'sentok')) || (t === 'inbox' && S.tab === 'chat') ? 'aria-current="page"' : '');
   return `
   <header class="topbar">
     <div class="who"><span>Aujourd’hui tu es</span><strong>${esc(s.pseudo)}</strong></div>
     <span class="pill">${ICON.pin}${esc(s.current_city)}</span>
   </header>
   ${body}
-  ${S.tab === 'send' || S.tab === 'sentok' ? '' : `
+  ${S.tab === 'send' || S.tab === 'sentok' || S.tab === 'chat' ? '' : `
   <nav class="nav" aria-label="Navigation principale">
     <button data-a="tab" data-tab="discover" ${navOn('discover')}>${ICON.search}Découvrir</button>
     <button data-a="tab" data-tab="inbox" ${navOn('inbox')}>${ICON.inbox}Reçus${unread ? `<span class="count">${unread}</span>` : ''}</button>
@@ -394,9 +420,9 @@ V.tab_discover = () => {
 V.tab_send = () => {
   const t = S.target;
   return `<div class="scroll">
-    <button class="link muted" data-a="tab" data-tab="discover" style="display:flex;align-items:center;gap:6px;align-self:flex-start">${ICON.back}Retour</button>
+    <button class="link muted" data-a="tab" data-tab="${t.reply_id ? 'inbox' : 'discover'}" style="display:flex;align-items:center;gap:6px;align-self:flex-start">${ICON.back}Retour</button>
     <div class="stack" style="gap:8px;padding:0 4px">
-      <h2>Un bonbon pour ${esc(t.pseudo)}</h2>
+      <h2>${t.reply_id ? 'Renvoyer un bonbon à' : 'Un bonbon pour'} ${esc(t.pseudo)}</h2>
       ${t.local ? `<span class="badge local" style="align-self:flex-start">Vous êtes tous les deux à ${esc(cityLabel(S.status))}</span>` : `<span class="badge away" style="align-self:flex-start">De passage · vient de ${esc(t.home_city)}</span>`}
     </div>
     <div role="radiogroup" aria-label="Choisis un compliment" class="stack" style="gap:10px">
@@ -415,7 +441,9 @@ V.tab_sentok = () => `<section class="screen center">
   ${candy('#1D6B5E', 120)}
   <h2>Ton bonbon est parti</h2>
   <p class="sub" style="max-width:300px">${esc(S.target ? S.target.pseudo : '')} recevra « ${esc(S.lastSentText)} » de la part de <strong style="color:var(--ink)">${esc(S.status.session.pseudo)}</strong>. Rien d’autre.</p>
-  <button class="btn dark small" data-a="tab" data-tab="discover">Continuer à découvrir</button>
+  ${S.target && S.target.reply_id
+    ? '<p class="small" style="max-width:300px;margin:0">Si vous vous êtes envoyé un bonbon tous les deux, un petit échange s’ouvre dans « Reçus ».</p><button class="btn dark small" data-a="tab" data-tab="inbox">Retour à mes bonbons</button>'
+    : '<button class="btn dark small" data-a="tab" data-tab="discover">Continuer à découvrir</button>'}
 </section>`;
 
 V.tab_inbox = () => {
@@ -423,12 +451,14 @@ V.tab_inbox = () => {
   const rec = S.inbox.length ? S.inbox.map((m) => `<article class="card">
       <span class="context">${m.local ? 'Vous êtes dans la même ville, mais vous ne vous connaissez pas.' : `Un inconnu de passage à ${esc(city)}, venu de ${esc(m.sender_home_city)}.`}</span>
       <p class="quote">« ${esc(COMPLIMENTS[m.compliment_id] || '')} »</p>
-      <span class="small">— ${esc(m.sender_pseudo)} · ${timeAgo(m.created_at)}</span>
-      ${m.status === 'open' ? `<div class="row">
-          <button class="btn small soft" data-a="thank" data-id="${esc(m.id)}">Dire merci</button>
-          <button class="btn small ghost" style="border-width:1px;border-color:var(--field);color:var(--muted)" data-a="reportBonbon" data-id="${esc(m.id)}">Bloquer / signaler</button>
+      <span class="small">— ${esc(m.sender_pseudo)} · ${timeAgo(m.created_at)}${m.is_reply ? ' · <strong>en réponse à ton bonbon</strong>' : ''}</span>
+      ${m.status !== 'reported' ? `<div class="row">
+          ${m.can_reply ? `<button class="btn small" data-a="replyBonbon" data-id="${esc(m.id)}">Renvoyer un bonbon</button>` : ''}
+          ${m.status === 'open' ? `<button class="btn small soft" data-a="thank" data-id="${esc(m.id)}">Dire merci</button>` : ''}
+          <button class="link muted" style="font-size:14px" data-a="reportBonbon" data-id="${esc(m.id)}">Bloquer / signaler</button>
         </div>` : ''}
-      ${m.status === 'thanked' ? '<span class="small" style="color:var(--accent-deep);font-weight:700">Merci envoyé. La conversation s’arrête là, en douceur.</span>' : ''}
+      ${m.replied ? '<span class="small" style="color:var(--accent-deep);font-weight:700">Tu lui as renvoyé un bonbon.</span>' : ''}
+      ${m.status === 'thanked' && !m.replied ? '<span class="small" style="color:var(--accent-deep);font-weight:700">Merci envoyé.</span>' : ''}
       ${m.status === 'reported' ? '<span class="small">Signalé et bloqué. Cette personne ne peut plus t’écrire, quel que soit son pseudo.</span>' : ''}
     </article>`).join('')
     : `<div class="empty">${candy('#E2CFCB', 64)}<span>Pas encore de bonbon. Garde l’app ouverte, on te prévient dès qu’un compliment arrive.</span></div>`;
@@ -436,7 +466,32 @@ V.tab_inbox = () => {
       <span style="font-size:15px">« ${esc(COMPLIMENTS[m.compliment_id] || '')} » à <strong>${esc(m.recipient_pseudo)}</strong></span>
       <span class="small">${timeAgo(m.created_at)}${m.thanked ? ' · <strong style="color:var(--accent-deep)">Merci reçu</strong>' : ''}</span>
     </div>`).join('') : '';
-  return `<div class="scroll"><h2 style="margin:0 4px">Tes petits bonbons</h2>${rec}${sent}</div>`;
+  const convs = S.convs.length ? `<h3 style="margin:0 4px">Vos petits échanges</h3>` + S.convs.map((c) => `<button class="card conv" data-a="openChat" data-sid="${esc(c.session_id)}">
+      <span class="row" style="justify-content:space-between;width:100%"><strong style="font-size:18px">${esc(c.pseudo)}</strong>${convUnread(c) ? '<span class="dot-new" aria-label="Nouveau message"></span>' : ''}</span>
+      <span class="small">${c.last_phrase === null || c.last_phrase === undefined ? 'Vous vous êtes envoyé un bonbon : dites-vous un petit mot !' : (c.last_from_me ? 'Toi : ' : '') + esc(PHRASES[c.last_phrase] || '')}</span>
+    </button>`).join('') : '';
+  return `<div class="scroll">${convs}<h2 style="margin:${S.convs.length ? '12px' : '0'} 4px 0">Tes petits bonbons</h2>${rec}${sent}</div>`;
+};
+
+V.tab_chat = () => {
+  const c = S.chat || {};
+  const msgs = S.thread.length
+    ? S.thread.map((m) => `<div class="bubble ${m.mine ? 'mine' : ''}">${esc(PHRASES[m.phrase_id] || '')}</div>`).join('')
+    : `<p class="small" style="text-align:center;margin:20px 0">Vous vous êtes envoyé un bonbon tous les deux. Choisis un petit mot ci-dessous 🍬</p>`;
+  return `<div class="scroll chat">
+    <div class="row" style="justify-content:space-between">
+      <button class="link muted" data-a="tab" data-tab="inbox" style="display:flex;align-items:center;gap:6px">${ICON.back}Retour</button>
+      <button class="link muted" style="font-size:14px" data-a="reportChat">Bloquer / signaler</button>
+    </div>
+    <div class="stack" style="gap:4px;padding:0 4px">
+      <h2>${esc(c.pseudo || '')}</h2>
+      <span class="small">${c.moods && c.moods.length ? esc(c.moods.join(' · ')) + ' · ' : ''}disparaît avec vos identités du jour</span>
+    </div>
+    <div class="bubbles" id="bubbles">${msgs}</div>
+    <div class="phrases" role="group" aria-label="Choisis un petit mot">
+      ${PHRASES.map((ph, i) => `<button type="button" class="chip" data-a="sendPhrase" data-i="${i}">${esc(ph)}</button>`).join('')}
+    </div>
+  </div>`;
 };
 
 V.tab_me = () => {
@@ -560,10 +615,11 @@ async function route() {
 
 async function loadData() {
   try {
-    const [people, inbox, sent] = await Promise.all([rpc('discover'), rpc('inbox'), rpc('sent')]);
+    const [people, inbox, sent, convs] = await Promise.all([rpc('discover'), rpc('inbox'), rpc('sent'), rpc('conversations')]);
     S.people = people || []; S.peopleLoaded = true;
     noteInbox(inbox || []);
     S.sent = sent || [];
+    noteConvs(convs || []);
     if (S.view === 'main') render();
   } catch (e) { toast(errMsg(e)); }
 }
@@ -579,16 +635,44 @@ function noteInbox(list) {
   S.inbox = list;
 }
 
+function noteConvs(list) {
+  const before = new Map(S.convs.map((c) => [c.session_id, c.last_at]));
+  const fresh = list.some((c) => !c.last_from_me && c.last_at && before.has(c.session_id) && before.get(c.session_id) !== c.last_at
+    && !(S.tab === 'chat' && S.chat && S.chat.session_id === c.session_id));
+  const opened = S.convs.length && list.some((c) => !before.has(c.session_id));
+  if (fresh || opened) SOUND.play('open');
+  if (opened && S.tab !== 'chat') toast('Un petit échange vient de s’ouvrir dans « Reçus » 🍬');
+  S.convs = list;
+}
+
+async function loadThread(scroll) {
+  if (!S.chat) return;
+  try {
+    const t = await rpc('thread', { p_session_id: S.chat.session_id });
+    const changed = (t || []).length !== S.thread.length;
+    S.thread = t || [];
+    const c = S.convs.find((x) => x.session_id === S.chat.session_id);
+    if (c) markSeen(c);
+    if (S.tab === 'chat' && (changed || scroll)) { render(); const b = document.getElementById('bubbles'); if (b) b.lastElementChild && b.lastElementChild.scrollIntoView({ block: 'end' }); }
+  } catch (e) {
+    if (S.tab === 'chat') { toast('Cet échange est terminé.'); S.chat = null; S.tab = 'inbox'; render(); loadData(); }
+  }
+}
+setInterval(() => { if (S.view === 'main' && S.tab === 'chat' && !document.hidden) loadThread(false); }, 5000);
+
 async function poll() {
   if (S.view !== 'main' || document.hidden) return;
   try {
-    const [inbox, status] = await Promise.all([rpc('inbox'), rpc('my_status')]);
+    const [inbox, status, convs] = await Promise.all([rpc('inbox'), rpc('my_status'), rpc('conversations')]);
     if (!status.session) { S.status = status; return route(); }
     const before = S.banner;
     const wasReady = S.status && S.status.city_ready;
     S.status = status;
     noteInbox(inbox || []);
+    const convBefore = S.convs.map((c) => c.last_at).join();
+    noteConvs(convs || []);
     if (status.city_ready !== wasReady && S.tab === 'discover') { render(); loadData(); return; }
+    if (convBefore !== S.convs.map((c) => c.last_at).join() && S.tab !== 'chat') render();
     if (S.banner !== before || S.tab === 'inbox') render();
   } catch (_) { /* silencieux : on réessaiera */ }
 }
@@ -631,10 +715,31 @@ const A = {
   refresh() { S.peopleLoaded = false; render(); loadData(); },
   pickTarget(d) { S.target = S.people[+d.i]; S.pick = 0; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0); },
   pick(d) { S.pick = +d.i; render(); },
+  replyBonbon(d) {
+    const m = S.inbox.find((x) => x.id === d.id); if (!m) return;
+    S.target = { pseudo: m.sender_pseudo, local: m.local, home_city: m.sender_home_city, reply_id: m.id };
+    S.pick = 0; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0);
+  },
+  openChat(d) {
+    const c = S.convs.find((x) => x.session_id === d.sid); if (!c) return;
+    S.chat = c; S.thread = []; S.tab = 'chat'; markSeen(c); render(); loadThread(true);
+  },
+  async sendPhrase(d) {
+    if (!S.chat || S.busy) return;
+    S.busy = true;
+    const i = +d.i;
+    S.thread = S.thread.concat({ mine: true, phrase_id: i, created_at: new Date().toISOString() });
+    render(); { const b = document.getElementById('bubbles'); if (b && b.lastElementChild) b.lastElementChild.scrollIntoView({ block: 'end' }); }
+    try { await rpc('send_phrase', { p_session_id: S.chat.session_id, p_phrase: i }); }
+    catch (e) { toast(errMsg(e)); }
+    S.busy = false; loadThread(true);
+  },
+  reportChat() { if (S.chat) { S.report = { sessionId: S.chat.session_id, pseudo: S.chat.pseudo, fromChat: true }; render(); } },
   async send() {
     S.busy = true; S.error = ''; render();
     try {
-      await rpc('send_bonbon', { p_session_id: S.target.session_id, p_compliment: S.pick });
+      if (S.target.reply_id) await rpc('reply_bonbon', { p_bonbon_id: S.target.reply_id, p_compliment: S.pick });
+      else await rpc('send_bonbon', { p_session_id: S.target.session_id, p_compliment: S.pick });
       S.lastSentText = COMPLIMENTS[S.pick];
       S.status.sent_today += 1;
       S.target.already_sent = true;
@@ -654,6 +759,7 @@ const A = {
   closeReport() { S.report = null; render(); },
   async blockOnly() {
     const r = S.report; S.report = null;
+    if (r.fromChat) { S.chat = null; S.tab = 'inbox'; }
     try {
       await rpc('block_only', { p_bonbon_id: r.bonbonId || null, p_session_id: r.sessionId || null });
       toast('C’est fait. Vous ne vous verrez plus.');
@@ -672,6 +778,7 @@ const A = {
   closePremium() { S.premium = false; render(); },
   async confirmReport(d) {
     const r = S.report; S.report = null;
+    if (r.fromChat) { S.chat = null; S.tab = 'inbox'; }
     try {
       await rpc('report', { p_reason: d.reason, p_bonbon_id: r.bonbonId || null, p_session_id: r.sessionId || null });
       toast('Signalement envoyé. Cette personne ne pourra plus te voir ni t’écrire.');

@@ -109,6 +109,8 @@ supabase/functions/stripe-webhook/index.ts   déblocage après paiement
 
 Options prévues : message personnalisé, note vocale, photo éphémère, musique, lien (2,99 €/mois, compte avec e-mail requis).
 
+**Discussion libre (Premium)** : prolongement des petits échanges à phrases toutes faites. Ne s'ouvre que si les **deux** personnes l'acceptent explicitement, uniquement entre abonnés. Filtre automatique (contacts, liens, insultes, contenus sexuels) avant réception, signalement en un geste, file de modération humaine. Aucun lien ni numéro autorisé, même en Premium.
+
 **Règles décidées pour les photos**
 - **Éphémère, 10 secondes** : une photo reçue s'ouvre une seule fois, reste visible 10 secondes (avec un compte à rebours), puis elle est supprimée définitivement du serveur. Aucune galerie, aucun enregistrement, aucune réouverture. Une photo jamais ouverte est supprimée automatiquement au bout de 24 heures.
 - **Yeux masqués par défaut** : avant l'envoi, l'app détecte les visages *sur le téléphone* (ex. MediaPipe Face Landmarker, gratuit, fonctionne dans le navigateur) et pixelise une bande sur les yeux, dans le style pixel de l'app. La photo d'origine ne quitte jamais l'appareil : seule la version filtrée est envoyée.
