@@ -38,7 +38,7 @@ const PREMIUM_FEATURES = [
   { short: 'Lien', long: 'Partager un lien' },
 ];
 const EVENTS_MSG = 'Quand nous serons plus nombreux, nous organiserons une fois par mois des rencontres live entre bonbons, petits pains et autres gourmandises :)';
-const AVATAR_COLORS = ['#F9D9E3', '#D5EEE8', '#FBE6CC', '#E3DDF5'];
+const AVATAR_COLORS = ['#FFD6E6', '#C9F2E4', '#FFE9B3', '#DCD3FF'];
 const ERRORS = {
   PAYWALL: 'L’accès à Petit Bonbon n’est pas encore activé sur ce compte.',
   ADULT: 'Petit Bonbon est réservé aux plus de 18 ans.',
@@ -113,7 +113,34 @@ const ICON = {
   refresh: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
   lock: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
 };
-const candy = (fill, size = 88) => `<svg width="${size}" height="${Math.round(size * 56 / 88)}" viewBox="0 0 88 56" aria-hidden="true"><path d="M4 18 L18 28 L4 38 Z" fill="${fill}"/><path d="M84 18 L70 28 L84 38 Z" fill="${fill}"/><ellipse cx="44" cy="28" rx="27" ry="21" fill="${fill}"/><path d="M30 16 Q44 28 30 40" stroke="#F9D9E3" stroke-width="4" fill="none" stroke-linecap="round"/><path d="M44 9 Q58 28 44 47" stroke="#F9D9E3" stroke-width="4" fill="none" stroke-linecap="round"/></svg>`;
+// Bonbon en pixel art (grille 22 × 12). # = papier, o = reflet, w = brillance
+const CANDY_PIXELS = [
+  '........######........',
+  '......##########......',
+  '#....####ww######....#',
+  '##..####o####o####..##',
+  '###.####o####o####.###',
+  '########oo####oo######',
+  '#########oo####oo#####',
+  '###.######o####o##.###',
+  '##..######o####o##..##',
+  '#....############....#',
+  '......##########......',
+  '........######........',
+];
+const CANDY_COLORS = { '#C2255C': '#D61F5F', '#1D6B5E': '#0E9F7E', '#F38BAF': '#FF7EB0', '#E2CFCB': '#CBB8D6' };
+const candy = (fill, size = 88) => {
+  const main = CANDY_COLORS[fill] || fill;
+  let rects = '';
+  CANDY_PIXELS.forEach((row, y) => {
+    [...row].forEach((ch, x) => {
+      if (ch === '.') return;
+      const c = ch === '#' ? main : ch === 'o' ? 'rgba(255,255,255,0.55)' : '#FFFFFF';
+      rects += `<rect x="${x}" y="${y}" width="1" height="1" fill="${c}"/>`;
+    });
+  });
+  return `<svg class="pixel" width="${size}" height="${Math.round(size * 12 / 22)}" viewBox="0 0 22 12" shape-rendering="crispEdges" aria-hidden="true">${rects}</svg>`;
+};
 const errorBox = () => (S.error ? `<p class="error" role="alert">${esc(S.error)}</p>` : '');
 const isAnon = () => !!(S.user && S.user.is_anonymous);
 // Un utilisateur sans compte ne se « déconnecte » pas : il perdrait ses blocages et son accès
@@ -132,7 +159,7 @@ V.setup = () => `<section class="screen center">
 V.welcome = () => `<section class="screen welcome">
   <div class="stack" style="gap:28px">
     ${candy('#C2255C')}
-    <h1>Petit<br>Bonbon</h1>
+    <h1>Petit<br>Bonbon<span class="cursor" aria-hidden="true">_</span></h1>
     <p class="lead">Un inconnu, un petit mot, une nouvelle possibilité.</p>
   </div>
   <div class="stack" style="gap:16px">
@@ -145,7 +172,7 @@ V.welcome = () => `<section class="screen welcome">
       <label class="check"><input type="checkbox" name="adult"><span>J’ai 18 ans ou plus.</span></label>
       <label class="check"><input type="checkbox" name="terms"><span>J’accepte les <a href="cgu.html" target="_blank">conditions d’utilisation</a>.</span></label>
       ${errorBox()}
-      <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Entrer</button>
+      <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>▶ Entrer</button>
     </form>
     <p class="small" style="text-align:center;margin:0">Sans compte, sans e-mail, sans mot de passe.</p>
     ${legalLinks()}
@@ -313,7 +340,7 @@ V.tab_discover = () => {
   }).join('');
   return `<div class="scroll">
     <div class="row" style="justify-content:space-between;padding:0 4px">
-      <h2 style="font-size:26px">Autour de toi</h2>
+      <h2>Autour de toi</h2>
       <button class="btn small ghost" data-a="refresh" aria-label="Actualiser" style="min-width:44px;padding:0 12px">${ICON.refresh}</button>
     </div>
     ${S.hideEvents ? '' : `<div class="events">
@@ -330,7 +357,7 @@ V.tab_send = () => {
   return `<div class="scroll">
     <button class="link muted" data-a="tab" data-tab="discover" style="display:flex;align-items:center;gap:6px;align-self:flex-start">${ICON.back}Retour</button>
     <div class="stack" style="gap:8px;padding:0 4px">
-      <h2 style="font-size:28px">Un bonbon pour ${esc(t.pseudo)}</h2>
+      <h2>Un bonbon pour ${esc(t.pseudo)}</h2>
       ${t.local ? `<span class="badge local" style="align-self:flex-start">Vous êtes tous les deux à ${esc(cityLabel(S.status))}</span>` : `<span class="badge away" style="align-self:flex-start">De passage · vient de ${esc(t.home_city)}</span>`}
     </div>
     <div role="radiogroup" aria-label="Choisis un compliment" class="stack" style="gap:10px">
@@ -370,7 +397,7 @@ V.tab_inbox = () => {
       <span style="font-size:15px">« ${esc(COMPLIMENTS[m.compliment_id] || '')} » à <strong>${esc(m.recipient_pseudo)}</strong></span>
       <span class="small">${timeAgo(m.created_at)}${m.thanked ? ' · <strong style="color:var(--accent-deep)">Merci reçu</strong>' : ''}</span>
     </div>`).join('') : '';
-  return `<div class="scroll"><h2 style="font-size:26px;margin:0 4px">Tes petits bonbons</h2>${rec}${sent}</div>`;
+  return `<div class="scroll"><h2 style="margin:0 4px">Tes petits bonbons</h2>${rec}${sent}</div>`;
 };
 
 V.tab_me = () => {
@@ -408,7 +435,7 @@ V.tab_me = () => {
 V.premiumSheet = () => `<div class="sheet-back" data-a="closePremium">
   <div class="sheet" role="dialog" aria-modal="true" aria-label="Premium" data-stop="1">
     <span class="small" style="font-weight:700;letter-spacing:1px;color:var(--accent)">PREMIUM · ${PREMIUM_PRICE.toUpperCase()}</span>
-    <h3 style="font-size:26px">Offre plus qu’un bonbon</h3>
+    <h3>Offre plus qu’un bonbon</h3>
     <div class="bullets" style="margin:6px 0">${PREMIUM_FEATURES.map((f) => `<div>${esc(f.long)}</div>`).join('')}</div>
     <p class="note" style="margin:0">Premium arrive très bientôt. En attendant, toute l’app de base est gratuite.</p>
     <button class="btn" data-a="closePremium">D’accord</button>
