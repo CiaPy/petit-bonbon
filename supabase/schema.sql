@@ -17,7 +17,7 @@ create table if not exists public.app_settings (
 );
 insert into public.app_settings (id) values (1) on conflict do nothing;
 -- Ajouts de sécurité (sans effet si les colonnes existent déjà)
-alter table public.app_settings add column if not exists min_city_people   int not null default 3; -- « Découvrir » s'ouvre à partir de N personnes dans la ville
+alter table public.app_settings add column if not exists min_city_people   int not null default 2; -- « Découvrir » s'ouvre à partir de N personnes dans la ville
 alter table public.app_settings add column if not exists weekly_pair_limit int not null default 2; -- bonbons max vers une même personne sur 7 jours
 
 -- ---------- Comptes ------------------------------------------------------
@@ -380,6 +380,19 @@ begin
   end if;
 end $$;
 
+-- Ajouter ou modifier ses « quelques mots » (facultatif) sur l'identité du jour
+create or replace function public.update_bio(p_bio text)
+returns json language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); b text := nullif(trim(coalesce(p_bio, '')), '');
+begin
+  if uid is null then raise exception 'AUTH'; end if;
+  if b is not null and char_length(b) > 80 then raise exception 'BAD_TEXT'; end if;
+  if public.text_problem(b) then raise exception 'BAD_TEXT'; end if;
+  update public.sessions set bio = b where user_id = uid and expires_at > now();
+  if not found then raise exception 'NO_SESSION'; end if;
+  return public.my_status();
+end $$;
+
 -- Bloquer sans signaler : on ne se voit plus, on ne peut plus s'écrire, sans accusation.
 create or replace function public.block_only(p_bonbon_id uuid default null, p_session_id uuid default null)
 returns void language plpgsql security definer set search_path = public as $$
@@ -419,7 +432,7 @@ grant execute on function
   public.start_session(text, text[], text, text, text), public.end_session(),
   public.discover(), public.send_bonbon(uuid, int),
   public.inbox(), public.sent(), public.thank_bonbon(uuid),
-  public.report(text, uuid, uuid), public.block_only(uuid, uuid), public.update_settings(boolean, boolean),
+  public.report(text, uuid, uuid), public.block_only(uuid, uuid), public.update_bio(text), public.update_settings(boolean, boolean),
   public.delete_account()
 to authenticated;
 revoke execute on function public.text_problem(text, boolean), public.city_ready(text) from authenticated;

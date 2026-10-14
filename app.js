@@ -25,7 +25,7 @@ const COMPLIMENTS = [
   'Tu rends cette ville plus douce.',
 ];
 // Doit correspondre à la liste « allowed » de start_session dans schema.sql
-const MOODS = ['Joyeux·se', 'Rêveur·se', 'Curieux·se', 'Calme', 'De passage', 'Fatigué·e mais là', 'Bavard·e', 'Timide', 'En balade'];
+const MOODS = ['Joyeux·se', 'Rêveur·se', 'Curieux·se', 'Calme', 'De passage', 'Timide'];
 const CITIES = ['Paris', 'Marseille', 'Lyon', 'Toulouse', 'Nice', 'Nantes', 'Montpellier', 'Strasbourg', 'Bordeaux', 'Lille', 'Rennes', 'Reims', 'Toulon', 'Saint-Étienne', 'Le Havre', 'Grenoble', 'Dijon', 'Angers', 'Nîmes', 'Clermont-Ferrand', 'Orléans', 'Tours', 'Brest', 'Limoges', 'Amiens', 'Metz', 'Perpignan', 'Besançon', 'Caen', 'Rouen', 'Nancy', 'Avignon', 'La Rochelle', 'Poitiers', 'Pau', 'Bayonne', 'Annecy', 'Bruxelles', 'Genève', 'Lausanne', 'Montréal'];
 const REASONS = ['Message ou profil déplacé', 'Contenu sexuel', 'Je pense que c’est un·e mineur·e', 'Insistance ou harcèlement', 'Autre chose me met mal à l’aise'];
 // Options réservées à l'abonnement Premium (pas encore disponibles)
@@ -46,7 +46,7 @@ const ERRORS = {
   LIMIT: 'Tu as envoyé tous tes bonbons pour aujourd’hui. Reviens demain !',
   ALREADY: 'Tu as déjà envoyé un bonbon à cette personne aujourd’hui.',
   WEEKLY: 'Tu as déjà offert plusieurs bonbons à cette personne cette semaine. Laisse-lui un peu d’air 🍬',
-  BAD_TEXT: 'Ton pseudo, ta phrase ou ta ville contient un contact (numéro, réseau social, lien) ou un mot interdit. Modifie-le pour continuer.',
+  BAD_TEXT: 'Ton surnom, tes quelques mots ou ta ville contient un contact (numéro, réseau social, lien) ou un mot interdit. Modifie-le pour continuer.',
   GONE: 'Cette personne n’est plus disponible.',
   NO_SESSION: 'Ton identité du jour a expiré. Recrée-la pour continuer.',
   BAD_MOOD: 'Humeur non reconnue.',
@@ -311,28 +311,19 @@ V.identity = () => {
   const canBack = !!(S.status && S.status.session);
   return `<section class="screen">
   ${canBack ? `<button class="link muted" data-a="tab" data-tab="me" aria-label="Retour" style="align-self:flex-start;display:flex;align-items:center">${ICON.back}</button>` : ''}
-  <div class="stack" style="gap:6px">
-    <h2>Qui es-tu aujourd’hui ?</h2>
-    <p class="sub">Ton identité du jour disparaît au bout de 12 heures, ou quand tu pars. Demain, tu pourras être quelqu’un d’autre.</p>
-  </div>
-  <form class="stack" style="gap:20px" data-f="identity">
-    <div class="field"><label for="pseudo">Prénom ou pseudo</label>
-      <input id="pseudo" name="pseudo" maxlength="20" value="${esc(f.pseudo)}" placeholder="Vide = « Quelqu’un de passage »" data-bind="pseudo"></div>
+  <h2>Qui es-tu aujourd’hui ?</h2>
+  <form class="stack" style="gap:26px" data-f="identity">
+    <div class="field"><label for="pseudo">Nom ou surnom</label>
+      <input id="pseudo" name="pseudo" maxlength="20" value="${esc(f.pseudo)}" placeholder="Quelqu’un de passage" data-bind="pseudo"></div>
     <div class="stack" style="gap:10px">
-      <div class="row" style="justify-content:space-between"><span class="label">Ton humeur</span><span class="small">${f.moods.length}/3</span></div>
+      <span class="label">Ton humeur</span>
       <div class="chips">${MOODS.map((m) => `<button type="button" class="chip" data-a="mood" data-mood="${esc(m)}" aria-pressed="${f.moods.includes(m)}">${esc(m)}</button>`).join('')}</div>
     </div>
-    <div class="field"><label for="bio">Un mot sur toi <span style="font-weight:400;color:var(--muted)">(facultatif)</span></label>
-      <textarea id="bio" name="bio" rows="2" maxlength="80" placeholder="Ex. : je cherche le meilleur croissant du quartier" data-bind="bio">${esc(f.bio)}</textarea>
-      <span class="small">Pas de numéro, de réseau social ni de lien : ils seront refusés. Reste bienveillant·e, chaque profil peut être signalé.</span></div>
-    <div class="field"><label for="city">Où es-tu en ce moment ?</label>
-      <input id="city" name="city" list="cities" maxlength="60" required value="${esc(f.city)}" placeholder="Ta ville" data-bind="city" autocomplete="address-level2"></div>
-    <div class="field"><label for="home">D’où viens-tu ? <span style="font-weight:400;color:var(--muted)">(si tu es de passage)</span></label>
-      <input id="home" name="home" list="cities" maxlength="60" value="${esc(f.home)}" placeholder="Vide = j’habite ici" data-bind="home"></div>
+    <div class="field"><label for="city">Ta ville</label>
+      <input id="city" name="city" list="cities" maxlength="60" required value="${esc(f.city)}" placeholder="Ex. : Orléans" data-bind="city" autocomplete="address-level2"></div>
     <datalist id="cities">${CITIES.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
-    <div class="note">${ICON.pin}<span>Seule ta ville est partagée. Ta position exacte n’est jamais demandée.</span></div>
     ${errorBox()}
-    <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Entrer</button>
+    <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Let’s go !</button>
   </form>
 </section>`;
 };
@@ -365,7 +356,7 @@ V.tab_discover = () => {
   const city = cityLabel(S.status);
   const left = Math.max(0, S.status.daily_limit - S.status.sent_today);
   let list;
-  if (!S.status.city_ready) list = `<div class="empty">${candy('#E2CFCB', 64)}<strong style="color:var(--ink)">Petit Bonbon s’ouvre à ${esc(city)} dès que 3 personnes sont là.</strong><span>C’est pour protéger l’anonymat de chacun : à deux, on se reconnaîtrait trop facilement. Garde l’app ouverte ou partage-la autour de toi.</span><button class="btn small soft" data-a="share">Partager l’app</button></div>`;
+  if (!S.status.city_ready) list = `<div class="empty">${candy('#E2CFCB', 64)}<strong style="color:var(--ink)">Tu es la première personne à ${esc(city)} pour l’instant.</strong><span>Dès qu’une autre personne arrive, vous pourrez vous offrir des bonbons. Garde l’app ouverte ou partage-la autour de toi.</span><button class="btn small soft" data-a="share">Partager l’app</button></div>`;
   else if (!S.peopleLoaded) list = '<p class="empty">Chargement…</p>';
   else if (!S.people.length) list = `<div class="empty">${candy('#E2CFCB', 64)}<strong style="color:var(--ink)">Personne d’autre à ${esc(city)} pour l’instant.</strong><span>Reviens un peu plus tard, ou partage Petit Bonbon autour de toi.</span><button class="btn small soft" data-a="share">Partager l’app</button></div>`;
   else list = S.people.map((p, i) => {
@@ -456,12 +447,20 @@ V.tab_me = () => {
       <span class="small">Identité du jour · expire ${new Date(s.expires_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
       <h3>${esc(s.pseudo)}</h3>
       <span class="small">${s.moods && s.moods.length ? esc(s.moods.join(' · ')) : 'Pas d’humeur affichée'}</span>
+      ${S.editBio ? `<form class="stack" style="gap:10px;margin-top:6px" data-f="bio">
+          <div class="field"><label for="bio">Quelques mots sur toi</label>
+            <textarea id="bio" name="bio" rows="2" maxlength="80" placeholder="Ex. : je cherche le meilleur croissant du quartier">${esc(s.bio || '')}</textarea>
+            <span class="small">80 caractères. Pas de numéro, de réseau social ni de lien.</span></div>
+          ${errorBox()}
+          <div class="row"><button class="btn small" type="submit" ${S.busy ? 'disabled' : ''}>Enregistrer</button><button class="link muted" type="button" data-a="cancelBio">Annuler</button></div>
+        </form>`
+        : `${s.bio ? `<p class="bio" style="margin-top:4px">« ${esc(s.bio)} »</p>` : ''}
+           <button class="link" data-a="editBio" style="align-self:flex-start">${s.bio ? 'Modifier mes quelques mots' : '+ Ajouter quelques mots (facultatif)'}</button>`}
       <button class="link" data-a="editIdentity" style="align-self:flex-start">Changer d’identité</button>
     </div>
     <div class="card" style="padding:6px 18px;gap:0">
       <span class="small" style="padding-top:12px">Ce que je reçois</span>
       ${tg('receive_on', 'Recevoir des bonbons', 'Si c’est coupé, tu n’apparais plus dans « Découvrir ».')}
-      ${tg('same_city_only', 'Seulement des gens de ma ville', 'Les personnes de passage ne te verront pas.')}
     </div>
     <div class="card" style="padding:6px 18px;gap:0">
       <span class="small" style="padding-top:12px">Sons</span>
@@ -618,10 +617,8 @@ const A = {
     if (S.view === 'paywall') toast('Paiement pas encore reçu. Ça peut prendre une minute, réessaie.');
   },
   mood(d) {
-    const m = d.mood, list = S.form.moods;
-    if (list.includes(m)) S.form.moods = list.filter((x) => x !== m);
-    else if (list.length < 3) S.form.moods = list.concat(m);
-    else return toast('3 humeurs maximum.');
+    const m = d.mood;
+    S.form.moods = S.form.moods.includes(m) ? [] : [m];   // une seule humeur
     render();
   },
   tab(d) {
@@ -664,6 +661,8 @@ const A = {
     } catch (e) { toast(errMsg(e)); }
     render();
   },
+  editBio() { S.editBio = true; S.error = ''; render(); const t = document.getElementById('bio'); if (t) t.focus(); },
+  cancelBio() { S.editBio = false; S.error = ''; render(); },
   toggleSound(d) {
     if (d.key === 'on') SOUND.on = !SOUND.on; else SOUND.clicks = !SOUND.clicks;
     SOUND.save(); render();
@@ -717,6 +716,16 @@ const A = {
 };
 
 const F = {
+  async bio(form) {
+    const bio = String(new FormData(form).get('bio') || '');
+    S.busy = true; S.error = ''; render();
+    try {
+      S.status = await rpc('update_bio', { p_bio: bio });
+      S.editBio = false;
+      toast(bio.trim() ? 'Tes quelques mots sont visibles.' : 'Tes quelques mots ont été retirés.');
+    } catch (e) { S.error = errMsg(e); }
+    S.busy = false; render();
+  },
   // Entrée sans compte : identifiant anonyme invisible, lié à cet appareil
   async enter(form) {
     const fd = new FormData(form);
@@ -776,7 +785,7 @@ const F = {
     if (!f.city.trim()) { S.error = 'Indique la ville où tu te trouves.'; return render(); }
     S.busy = true; S.error = ''; render();
     try {
-      S.status = await rpc('start_session', { p_pseudo: f.pseudo, p_moods: f.moods, p_bio: f.bio, p_current_city: f.city, p_home_city: f.home });
+      S.status = await rpc('start_session', { p_pseudo: f.pseudo, p_moods: f.moods.slice(0, 1), p_bio: '', p_current_city: f.city, p_home_city: '' });
       try { localStorage.setItem('pb_city', f.city); } catch (_) {}
       S.busy = false; S.view = 'main'; S.tab = 'discover'; S.peopleLoaded = false; S.seenInbox = null;
       render(); loadData();
