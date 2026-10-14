@@ -38,7 +38,7 @@ const PREMIUM_FEATURES = [
   { short: 'Lien', long: 'Partager un lien' },
 ];
 const EVENTS_MSG = 'Quand nous serons plus nombreux, nous organiserons une fois par mois des rencontres live entre bonbons, petits pains et autres gourmandises :)';
-const AVATAR_COLORS = ['#FFD6E6', '#C9F2E4', '#FFE9B3', '#DCD3FF'];
+const AVATAR_COLORS = ['#FFE0EC', '#C6F1DF', '#FFF1A8', '#ECE4FF'];
 const ERRORS = {
   PAYWALL: 'L’accès à Petit Bonbon n’est pas encore activé sur ce compte.',
   ADULT: 'Petit Bonbon est réservé aux plus de 18 ans.',
@@ -128,7 +128,7 @@ const CANDY_PIXELS = [
   '......##########......',
   '........######........',
 ];
-const CANDY_COLORS = { '#C2255C': '#D61F5F', '#1D6B5E': '#0E9F7E', '#F38BAF': '#FF7EB0', '#E2CFCB': '#CBB8D6' };
+const CANDY_COLORS = { '#C2255C': '#FF8FB8', '#1D6B5E': '#7FD6B6', '#F38BAF': '#FF9EC4', '#E2CFCB': '#D9CDE6' };
 const candy = (fill, size = 88) => {
   const main = CANDY_COLORS[fill] || fill;
   let rects = '';
@@ -326,7 +326,7 @@ V.tab_discover = () => {
       : `<span class="badge away">De passage · vient de ${esc(p.home_city)}</span>`;
     return `<article class="card">
       <div class="person">
-        <div class="avatar" style="background:${AVATAR_COLORS[i % 4]}">${esc((p.pseudo || '?').charAt(0).toUpperCase())}</div>
+        <div class="avatar" style="--fill:${AVATAR_COLORS[i % 4]}">${esc((p.pseudo || '?').charAt(0).toUpperCase())}</div>
         <div class="stack" style="gap:3px;min-width:0"><span class="name">${esc(p.pseudo)}</span>${p.moods && p.moods.length ? `<span class="moods">${esc(p.moods.join(' · '))}</span>` : ''}</div>
       </div>
       ${p.bio ? `<p class="bio">« ${esc(p.bio)} »</p>` : ''}
