@@ -45,6 +45,8 @@ const ERRORS = {
   BANNED: 'Ce compte a été suspendu suite à des signalements.',
   LIMIT: 'Tu as envoyé tous tes bonbons pour aujourd’hui. Reviens demain !',
   ALREADY: 'Tu as déjà envoyé un bonbon à cette personne aujourd’hui.',
+  WEEKLY: 'Tu as déjà offert plusieurs bonbons à cette personne cette semaine. Laisse-lui un peu d’air 🍬',
+  BAD_TEXT: 'Ton pseudo, ta phrase ou ta ville contient un contact (numéro, réseau social, lien) ou un mot interdit. Modifie-le pour continuer.',
   GONE: 'Cette personne n’est plus disponible.',
   NO_SESSION: 'Ton identité du jour a expiré. Recrée-la pour continuer.',
   BAD_MOOD: 'Humeur non reconnue.',
@@ -145,7 +147,7 @@ const errorBox = () => (S.error ? `<p class="error" role="alert">${esc(S.error)}
 const isAnon = () => !!(S.user && S.user.is_anonymous);
 // Un utilisateur sans compte ne se « déconnecte » pas : il perdrait ses blocages et son accès
 const logoutBtn = (cls) => (isAnon() ? '' : `<button class="link muted ${cls}" data-a="logout">Me déconnecter</button>`);
-const legalLinks = () => `<p class="small" style="text-align:center"><a href="cgu.html">CGU</a> · <a href="confidentialite.html">Confidentialité</a> · <a href="mentions-legales.html">Mentions légales</a></p>`;
+const legalLinks = () => `<p class="small" style="text-align:center"><a href="securite.html">Sécurité</a> · <a href="cgu.html">CGU</a> · <a href="confidentialite.html">Confidentialité</a> · <a href="mentions-legales.html">Mentions légales</a></p>`;
 
 // ---------- Écrans -----------------------------------------------------
 const V = {};
@@ -277,7 +279,7 @@ V.identity = () => {
     </div>
     <div class="field"><label for="bio">Un mot sur toi <span style="font-weight:400;color:var(--muted)">(facultatif)</span></label>
       <textarea id="bio" name="bio" rows="2" maxlength="80" placeholder="Ex. : je cherche le meilleur croissant du quartier" data-bind="bio">${esc(f.bio)}</textarea>
-      <span class="small">Reste bienveillant·e : chaque profil peut être signalé.</span></div>
+      <span class="small">Pas de numéro, de réseau social ni de lien : ils seront refusés. Reste bienveillant·e, chaque profil peut être signalé.</span></div>
     <div class="field"><label for="city">Où es-tu en ce moment ?</label>
       <input id="city" name="city" list="cities" maxlength="60" required value="${esc(f.city)}" placeholder="Ta ville" data-bind="city" autocomplete="address-level2"></div>
     <div class="field"><label for="home">D’où viens-tu ? <span style="font-weight:400;color:var(--muted)">(si tu es de passage)</span></label>
@@ -318,7 +320,8 @@ V.tab_discover = () => {
   const city = cityLabel(S.status);
   const left = Math.max(0, S.status.daily_limit - S.status.sent_today);
   let list;
-  if (!S.peopleLoaded) list = '<p class="empty">Chargement…</p>';
+  if (!S.status.city_ready) list = `<div class="empty">${candy('#E2CFCB', 64)}<strong style="color:var(--ink)">Petit Bonbon s’ouvre à ${esc(city)} dès que 3 personnes sont là.</strong><span>C’est pour protéger l’anonymat de chacun : à deux, on se reconnaîtrait trop facilement. Garde l’app ouverte ou partage-la autour de toi.</span><button class="btn small soft" data-a="share">Partager l’app</button></div>`;
+  else if (!S.peopleLoaded) list = '<p class="empty">Chargement…</p>';
   else if (!S.people.length) list = `<div class="empty">${candy('#E2CFCB', 64)}<strong style="color:var(--ink)">Personne d’autre à ${esc(city)} pour l’instant.</strong><span>Reviens un peu plus tard, ou partage Petit Bonbon autour de toi.</span><button class="btn small soft" data-a="share">Partager l’app</button></div>`;
   else list = S.people.map((p, i) => {
     const badge = p.local
@@ -335,7 +338,7 @@ V.tab_discover = () => {
           ? '<span class="small">Bonbon envoyé aujourd’hui</span>'
           : `<button class="btn small dark" data-a="pickTarget" data-i="${i}">Envoyer un bonbon</button>`}
       </div>
-      <button class="link muted" style="align-self:flex-start;font-size:13px" data-a="reportSession" data-i="${i}">Signaler ce profil</button>
+      <button class="link muted" style="align-self:flex-start;font-size:13px" data-a="reportSession" data-i="${i}">Bloquer ou signaler</button>
     </article>`;
   }).join('');
   return `<div class="scroll">
@@ -387,7 +390,7 @@ V.tab_inbox = () => {
       <span class="small">— ${esc(m.sender_pseudo)} · ${timeAgo(m.created_at)}</span>
       ${m.status === 'open' ? `<div class="row">
           <button class="btn small soft" data-a="thank" data-id="${esc(m.id)}">Dire merci</button>
-          <button class="btn small ghost" style="border-width:1px;border-color:var(--field);color:var(--muted)" data-a="reportBonbon" data-id="${esc(m.id)}">Signaler</button>
+          <button class="btn small ghost" style="border-width:1px;border-color:var(--field);color:var(--muted)" data-a="reportBonbon" data-id="${esc(m.id)}">Bloquer / signaler</button>
         </div>` : ''}
       ${m.status === 'thanked' ? '<span class="small" style="color:var(--accent-deep);font-weight:700">Merci envoyé. La conversation s’arrête là, en douceur.</span>' : ''}
       ${m.status === 'reported' ? '<span class="small">Signalé et bloqué. Cette personne ne peut plus t’écrire, quel que soit son pseudo.</span>' : ''}
@@ -444,8 +447,11 @@ V.premiumSheet = () => `<div class="sheet-back" data-a="closePremium">
 
 V.reportSheet = () => `<div class="sheet-back" data-a="closeReport">
   <div class="sheet" role="dialog" aria-modal="true" aria-label="Signaler" data-stop="1">
-    <h3 style="margin-bottom:4px">Qu’est-ce qui ne va pas ?</h3>
-    <p class="small" style="margin:0 0 6px">${esc(S.report.pseudo)} sera bloqué·e définitivement, et notre équipe sera prévenue.</p>
+    <h3 style="margin-bottom:4px">${esc(S.report.pseudo)}</h3>
+    <button class="btn ghost" data-a="blockOnly">Bloquer, sans signaler</button>
+    <p class="small" style="margin:0">Vous ne vous verrez plus et ne pourrez plus vous écrire. Personne n’est prévenu.</p>
+    <h3 style="margin:14px 0 2px">Ou signaler un problème</h3>
+    <p class="small" style="margin:0 0 6px">La personne est bloquée et notre équipe est prévenue.</p>
     ${REASONS.map((r) => `<button class="reason" data-a="confirmReport" data-reason="${esc(r)}">${esc(r)}</button>`).join('')}
     <button class="link muted" style="align-self:center" data-a="closeReport">Annuler</button>
   </div>
@@ -527,10 +533,12 @@ async function poll() {
   if (S.view !== 'main' || document.hidden) return;
   try {
     const [inbox, status] = await Promise.all([rpc('inbox'), rpc('my_status')]);
-    S.status = status;
-    if (!status.session) return route();
+    if (!status.session) { S.status = status; return route(); }
     const before = S.banner;
+    const wasReady = S.status && S.status.city_ready;
+    S.status = status;
     noteInbox(inbox || []);
+    if (status.city_ready !== wasReady && S.tab === 'discover') { render(); loadData(); return; }
     if (S.banner !== before || S.tab === 'inbox') render();
   } catch (_) { /* silencieux : on réessaiera */ }
 }
@@ -596,6 +604,15 @@ const A = {
   reportBonbon(d) { const m = S.inbox.find((x) => x.id === d.id); S.report = { bonbonId: d.id, pseudo: m ? m.sender_pseudo : 'Cette personne' }; render(); },
   reportSession(d) { const p = S.people[+d.i]; S.report = { sessionId: p.session_id, pseudo: p.pseudo }; render(); },
   closeReport() { S.report = null; render(); },
+  async blockOnly() {
+    const r = S.report; S.report = null;
+    try {
+      await rpc('block_only', { p_bonbon_id: r.bonbonId || null, p_session_id: r.sessionId || null });
+      toast('C’est fait. Vous ne vous verrez plus.');
+      await loadData();
+    } catch (e) { toast(errMsg(e)); }
+    render();
+  },
   hideEvents() { S.hideEvents = true; try { localStorage.setItem('pb_hide_events', '1'); } catch (_) {} render(); },
   openPremium() { S.premium = true; render(); },
   closePremium() { S.premium = false; render(); },

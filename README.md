@@ -61,6 +61,13 @@ update app_settings set paywall_enabled = true;
 -- Changer le nombre de bonbons par jour
 update app_settings set daily_send_limit = 15;
 
+-- Nombre de personnes nécessaires dans une ville pour ouvrir « Découvrir » (3 par défaut)
+-- Pour tester à deux, mets 2 ; remets 3 avant de partager l'app.
+update app_settings set min_city_people = 2;
+
+-- Bonbons max vers une même personne sur 7 jours (2 par défaut)
+update app_settings set weekly_pair_limit = 2;
+
 -- Signalements à traiter
 select created_at, reason, pseudo_seen, bio_seen, reported_id
 from reports where not handled order by created_at desc;

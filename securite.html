@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sécurité · Petit Bonbon</title>
+<meta name="theme-color" content="#ECE4FF">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script>
+</head>
+<body>
+<article class="legal">
+<p><a href="./">← Retour à Petit Bonbon</a></p>
+<h1>Ta tranquillité d'abord</h1>
+<p>Petit Bonbon est fait pour des petits mots gentils, sans pression. Voici comment l'app te protège, et quelques réflexes pour garder ça agréable.</p>
+
+<h2>Ce que l'app fait pour toi</h2>
+<ul>
+<li>Ta position exacte n'est jamais demandée : seule la ville que tu indiques est partagée.</li>
+<li>« Découvrir » ne s'ouvre dans une ville qu'à partir de 3 personnes présentes, pour que personne ne soit facile à reconnaître.</li>
+<li>Les compliments sont choisis dans une liste : personne ne peut t'écrire n'importe quoi.</li>
+<li>Les numéros, réseaux sociaux, liens et mots injurieux sont refusés dans les pseudos et les phrases.</li>
+<li>Une même personne ne peut t'envoyer qu'un bonbon par jour, et deux par semaine au maximum.</li>
+<li>Ton identité du jour s'efface toute seule au bout de 12 heures.</li>
+<li>Tu peux couper la réception, ou ne recevoir que des gens de ta ville, dans l'onglet « Moi ».</li>
+</ul>
+
+<h2>Bloquer ou signaler</h2>
+<p><strong>Bloquer, sans signaler</strong> : vous ne vous voyez plus et ne pouvez plus vous écrire. Personne n'est prévenu. Utile quand quelqu'un ne te met simplement pas à l'aise.</p>
+<p><strong>Signaler</strong> : la personne est bloquée et l'équipe est prévenue. Un compte signalé par plusieurs personnes est suspendu automatiquement, puis vérifié.</p>
+<p>Ces deux actions se trouvent sur chaque profil et sur chaque bonbon reçu.</p>
+
+<h2>Les bons réflexes</h2>
+<ul>
+<li>Ne donne jamais ton adresse, ton numéro, ton lieu de travail ou tes réseaux sociaux à un inconnu.</li>
+<li>Méfie-toi de quelqu'un qui insiste pour continuer la conversation ailleurs.</li>
+<li>Pour les futures rencontres live : reste dans un lieu public, prévois ton retour, et préviens un proche de l'endroit où tu es.</li>
+<li>Si quelque chose te met mal à l'aise, tu as toujours raison de partir, de bloquer ou de signaler.</li>
+</ul>
+
+<h2>Besoin d'aide ?</h2>
+<ul>
+<li><strong>Danger immédiat</strong> : 17 (police) ou 112 (urgences). Par SMS si tu ne peux pas parler : 114.</li>
+<li><strong>Harcèlement ou violences en ligne</strong> : 3018, gratuit et anonyme.</li>
+<li><strong>Violences faites aux femmes</strong> : 3919, gratuit et anonyme, 24 h/24.</li>
+<li><strong>Contenu illégal sur internet</strong> : internet-signalement.gouv.fr (Pharos).</li>
+<li><strong>Contacter l'équipe Petit Bonbon</strong> : <a class="pb-contact" href="#"></a></li>
+</ul>
+</article>
+<script>
+document.querySelectorAll('.pb-contact').forEach(function (a) {
+  var m = (window.PB_CONFIG || {}).CONTACT_EMAIL || '';
+  a.textContent = m; a.href = 'mailto:' + m;
+});
+</script>
+</body>
+</html>

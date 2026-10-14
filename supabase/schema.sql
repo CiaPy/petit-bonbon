@@ -16,6 +16,9 @@ create table if not exists public.app_settings (
   daily_send_limit int     not null default 10       -- bonbons envoyés max par 24 h
 );
 insert into public.app_settings (id) values (1) on conflict do nothing;
+-- Ajouts de sécurité (sans effet si les colonnes existent déjà)
+alter table public.app_settings add column if not exists min_city_people   int not null default 3; -- « Découvrir » s'ouvre à partir de N personnes dans la ville
+alter table public.app_settings add column if not exists weekly_pair_limit int not null default 2; -- bonbons max vers une même personne sur 7 jours
 
 -- ---------- Comptes ------------------------------------------------------
 create table if not exists public.profiles (
@@ -132,6 +135,40 @@ returns boolean language sql stable security definer set search_path = public as
                     or (blocker_id = b and blocked_id = a))
 $$;
 
+-- Refuse les textes libres (pseudo, phrase, villes) qui contiennent un moyen
+-- de contact, un lien ou un mot injurieux / sexuel. Renvoie true si problème.
+drop function if exists public.text_problem(text);
+create or replace function public.text_problem(t text, check_words boolean default true)
+returns boolean language sql immutable as $$
+  with n as (
+    select ' ' || translate(lower(coalesce(t, '')),
+                 'àâäáãéèêëíìîïóòôöõúùûüçñ013457$€',
+                 'aaaaaeeeeiiiiooooouuuucnoieastse') || ' ' as x,
+           lower(coalesce(t, '')) as raw
+  )
+  select
+    -- numéro de téléphone (8 chiffres ou plus, avec ou sans séparateurs)
+    raw ~ '(\d[\s.\-/]*){8,}'
+    -- @pseudo, e-mail, liens
+    or raw ~ '@\w'
+    or raw ~ '(https?://|www\.)'
+    or raw ~ '\w\.(com|fr|net|org|io|be|ch|me|ly|gg|app|co|tv|link|bio)\M'
+    -- autres applis pour emmener la conversation ailleurs
+    or x ~ '\m(insta|instagram|snap|snapchat|whatsapp|watsap|wa\.me|telegram|tiktok|facebook|fb|discord|onlyfans|mym|tinder|kik|wechat|messenger)\M'
+    -- injures, contenus sexuels, haine (pas pour les villes : « Bitche » existe !)
+    or check_words and x ~ '\m(con|connard|connasse|conne|salope|salop|pute|putain|pd|pede|encul\w*|ntm|fdp|batard|nique\w*|bite|chatte|couille\w*|sexe|sexy|nude\w*|nudes|porn\w*|cul|baise\w*|suce|suces|sucer|suceu\w*|branle\w*|bander|nazi\w*|hitler|negre\w*|negro|bougnoul\w*|youpin\w*|gouine|tapette|tarlouze|viol|viols|violer|violeur\w*|fuck\w*|shit|bitch\w*|dick|pussy|cock|slut|whore|nigg\w*|fag|fags|faggot\w*|cunt)\M'
+  from n
+$$;
+
+-- La ville a-t-elle assez de monde pour ouvrir « Découvrir » ?
+create or replace function public.city_ready(p_city text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select count(distinct s.user_id) >= (select min_city_people from public.app_settings where id = 1)
+  from public.sessions s join public.profiles p on p.id = s.user_id
+  where s.expires_at > now() and not p.banned
+    and public.norm_city(s.current_city) = public.norm_city(p_city)
+$$;
+
 -- =====================================================================
 -- Fonctions appelées par l'application
 -- =====================================================================
@@ -153,6 +190,8 @@ begin
     'daily_limit',    st.daily_send_limit,
     'sent_today',     (select count(*) from public.bonbons
                         where sender_id = uid and created_at > now() - interval '24 hours'),
+    'city_ready', coalesce((select public.city_ready(current_city) from public.sessions
+                            where user_id = uid and expires_at > now()), false),
     'session', (select row_to_json(x) from (
                   select id, pseudo, moods, bio, current_city, home_city, expires_at
                   from public.sessions
@@ -181,6 +220,9 @@ begin
   problem := public.access_problem(uid);
   if problem is not null then raise exception '%', problem; end if;
   if not (coalesce(p_moods, '{}') <@ allowed) then raise exception 'BAD_MOOD'; end if;
+  if public.text_problem(p_pseudo) or public.text_problem(p_bio)
+     or public.text_problem(p_current_city, false) or public.text_problem(p_home_city, false)
+  then raise exception 'BAD_TEXT'; end if;
 
   delete from public.sessions where user_id = uid;
   insert into public.sessions (user_id, pseudo, moods, bio, current_city, home_city)
@@ -209,6 +251,7 @@ begin
   if public.access_problem(uid) is not null then return; end if;
   select * into me from public.sessions where user_id = uid and expires_at > now();
   if not found then return; end if;
+  if not public.city_ready(me.current_city) then return; end if;
 
   return query
   select s.id, s.pseudo, s.moods, s.bio, s.home_city,
@@ -241,6 +284,7 @@ begin
   if not found then raise exception 'NO_SESSION'; end if;
   select * into them from public.sessions where id = p_session_id and expires_at > now();
   if not found or them.user_id = uid then raise exception 'GONE'; end if;
+  if not public.city_ready(me.current_city) then raise exception 'GONE'; end if;
   select * into tp from public.profiles where id = them.user_id;
   if tp.banned or not tp.receive_on
      or public.norm_city(them.current_city) <> public.norm_city(me.current_city)
@@ -256,6 +300,11 @@ begin
              where sender_id = uid and recipient_id = them.user_id
                and created_at > now() - interval '24 hours')
   then raise exception 'ALREADY'; end if;
+  if (select count(*) from public.bonbons
+      where sender_id = uid and recipient_id = them.user_id
+        and created_at > now() - interval '7 days')
+     >= (select weekly_pair_limit from public.app_settings where id = 1)
+  then raise exception 'WEEKLY'; end if;
 
   insert into public.bonbons (sender_id, recipient_id, sender_pseudo, sender_home_city,
                               sender_current_city, recipient_pseudo, compliment_id)
@@ -331,6 +380,21 @@ begin
   end if;
 end $$;
 
+-- Bloquer sans signaler : on ne se voit plus, on ne peut plus s'écrire, sans accusation.
+create or replace function public.block_only(p_bonbon_id uuid default null, p_session_id uuid default null)
+returns void language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); target uuid;
+begin
+  if uid is null then raise exception 'AUTH'; end if;
+  if p_bonbon_id is not null then
+    select sender_id into target from public.bonbons where id = p_bonbon_id and recipient_id = uid;
+  elsif p_session_id is not null then
+    select user_id into target from public.sessions where id = p_session_id;
+  end if;
+  if target is null or target = uid then raise exception 'GONE'; end if;
+  insert into public.blocks (blocker_id, blocked_id) values (uid, target) on conflict do nothing;
+end $$;
+
 create or replace function public.update_settings(p_receive_on boolean, p_same_city_only boolean)
 returns void language plpgsql security definer set search_path = public as $$
 begin
@@ -355,8 +419,9 @@ grant execute on function
   public.start_session(text, text[], text, text, text), public.end_session(),
   public.discover(), public.send_bonbon(uuid, int),
   public.inbox(), public.sent(), public.thank_bonbon(uuid),
-  public.report(text, uuid, uuid), public.update_settings(boolean, boolean),
+  public.report(text, uuid, uuid), public.block_only(uuid, uuid), public.update_settings(boolean, boolean),
   public.delete_account()
 to authenticated;
+revoke execute on function public.text_problem(text, boolean), public.city_ready(text) from authenticated;
 revoke execute on function public.handle_new_user(), public.access_problem(uuid),
   public.blocked_between(uuid, uuid) from authenticated;
