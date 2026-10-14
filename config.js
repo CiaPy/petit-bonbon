@@ -9,7 +9,7 @@ window.PB_CONFIG = {
   SUPABASE_URL: "https://uyantfocqwhrqzqlqgah.supabase.co",
 
   // Supabase › Project Settings › API › anon public key
-  SUPABASE_ANON_KEY: "COLLE_ICI_LA_CLE_ANON",
+  SUPABASE_ANON_KEY: "sb_publishable_a6PyUzv-Mtdi40BZ_uvrUQ_jJPLcyzp",
 
   // Stripe › Liens de paiement › ton lien à 0,99 € (ex. https://buy.stripe.com/xxxx)
   // Laisse vide tant que Stripe n'est pas prêt : l'écran de paiement le signalera.
