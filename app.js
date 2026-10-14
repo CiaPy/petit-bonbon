@@ -37,6 +37,7 @@ const PREMIUM_FEATURES = [
   { short: 'Musique', long: 'Partager une musique' },
   { short: 'Lien', long: 'Partager un lien' },
 ];
+const EVENTS_MSG = 'Quand nous serons plus nombreux, nous organiserons une fois par mois des rencontres live entre bonbons :)';
 const AVATAR_COLORS = ['#F9D9E3', '#D5EEE8', '#FBE6CC', '#E3DDF5'];
 const ERRORS = {
   PAYWALL: 'L’accès à Petit Bonbon n’est pas encore activé sur ce compte.',
@@ -315,6 +316,10 @@ V.tab_discover = () => {
       <h2 style="font-size:26px">Autour de toi</h2>
       <button class="btn small ghost" data-a="refresh" aria-label="Actualiser" style="min-width:44px;padding:0 12px">${ICON.refresh}</button>
     </div>
+    ${S.hideEvents ? '' : `<div class="events">
+      <span class="events-txt"><strong>Bientôt : les rencontres live 🍬</strong><span>${esc(EVENTS_MSG)}</span></span>
+      <button class="events-x" data-a="hideEvents" aria-label="Masquer ce message">×</button>
+    </div>`}
     <p class="small" style="margin:0 4px">${left} bonbon${left > 1 ? 's' : ''} à offrir aujourd’hui. Aucune distance n’est affichée.</p>
     ${list}
   </div>`;
@@ -389,6 +394,7 @@ V.tab_me = () => {
       <p>Messages personnalisés, notes vocales, photos, musique et liens. L’app de base reste gratuite.</p>
       <button class="btn small" style="background:#fff;color:var(--ink);align-self:flex-start" data-a="openPremium">Découvrir</button>
     </div>
+    <div class="events"><span class="events-txt"><strong>Les rencontres live 🍬</strong><span>${esc(EVENTS_MSG)}</span></span></div>
     <button class="btn ghost" data-a="leave">Partir sans laisser de trace</button>
     <div class="stack" style="gap:0">
       <button class="link muted" data-a="share">Partager Petit Bonbon</button>
@@ -563,6 +569,7 @@ const A = {
   reportBonbon(d) { const m = S.inbox.find((x) => x.id === d.id); S.report = { bonbonId: d.id, pseudo: m ? m.sender_pseudo : 'Cette personne' }; render(); },
   reportSession(d) { const p = S.people[+d.i]; S.report = { sessionId: p.session_id, pseudo: p.pseudo }; render(); },
   closeReport() { S.report = null; render(); },
+  hideEvents() { S.hideEvents = true; try { localStorage.setItem('pb_hide_events', '1'); } catch (_) {} render(); },
   openPremium() { S.premium = true; render(); },
   closePremium() { S.premium = false; render(); },
   async confirmReport(d) {
@@ -704,7 +711,7 @@ document.addEventListener('keydown', (e) => {
 
 // ---------- Démarrage --------------------------------------------------
 async function start() {
-  try { S.form.city = localStorage.getItem('pb_city') || ''; } catch (_) {}
+  try { S.form.city = localStorage.getItem('pb_city') || ''; S.hideEvents = localStorage.getItem('pb_hide_events') === '1'; } catch (_) {}
   if (!CONFIGURED) return route();
   sb.auth.onAuthStateChange((event, session) => {
     if (event === 'PASSWORD_RECOVERY') { S.user = session && session.user; S.view = 'newpass'; render(); return; }

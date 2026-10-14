@@ -112,6 +112,10 @@ h3 { font-weight: 700; font-size: 22px; line-height: 1.15; }
 .toggle[aria-checked="true"] .track { background: var(--teal); }
 .toggle[aria-checked="true"] .track::after { left: 23px; }
 
+.events { display: flex; gap: 10px; align-items: flex-start; padding: 14px 8px 14px 16px; border-radius: 18px; background: var(--teal-soft); color: var(--teal-ink); }
+.events-txt { flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: 14px; line-height: 1.4; }
+.events-txt strong { font-size: 15px; }
+.events-x { width: 44px; height: 44px; flex-shrink: 0; margin: -10px 0 -10px; border: 0; background: transparent; color: var(--teal-ink); font-size: 24px; line-height: 1; cursor: pointer; }
 .premium { background: var(--ink); color: #fff; border-radius: 22px; padding: 20px; display: flex; flex-direction: column; gap: 10px; }
 .premium .kicker { font-size: 12px; font-weight: 700; letter-spacing: 1px; color: var(--accent-soft); }
 .premium p { margin: 0; color: #E9DDE6; font-size: 14px; line-height: 1.45; }
