@@ -96,3 +96,15 @@ supabase/functions/stripe-webhook/index.ts   déblocage après paiement
 ```
 
 **Ajouter des compliments :** ajoute-les **à la fin** de la liste `COMPLIMENTS` dans `app.js` (12 maximum ; la base stocke leur numéro).
+
+---
+
+## Feuille de route Premium (pas encore développé)
+
+Options prévues : message personnalisé, note vocale, photo, musique, lien (2,99 €/mois, compte avec e-mail requis).
+
+**Règles décidées pour les photos**
+- **Yeux masqués par défaut** : avant l'envoi, l'app détecte les visages *sur le téléphone* (ex. MediaPipe Face Landmarker, gratuit, fonctionne dans le navigateur) et pixelise une bande sur les yeux, dans le style pixel de l'app. La photo d'origine ne quitte jamais l'appareil : seule la version filtrée est envoyée.
+- **Aperçu obligatoire avant envoi** : la détection peut rater un visage (profil, lunettes, faible lumière). La personne voit le résultat et peut ajouter une bande à la main, ou pixeliser tout le visage.
+- **Retirer le filtre** est possible, mais doit rester un choix volontaire à chaque envoi, jamais un réglage permanent.
+- **Modération** : filtrage automatique de la nudité avant réception, signalement en un geste, et suppression des métadonnées (position GPS de la photo, modèle de téléphone).
