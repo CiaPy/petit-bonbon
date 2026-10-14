@@ -18,8 +18,9 @@ L'app sera en ligne à l'adresse **https://ciapy.github.io/petit-bonbon/** (1 à
 ### 2. Créer la base Supabase (5 min)
 1. Sur [supabase.com](https://supabase.com), **New project**. Région : **Europe** (ou un pays de l’UE). Note le mot de passe de la base quelque part.
 2. **SQL Editor** › **New query** › colle tout le contenu de `supabase/schema.sql` › **Run**. Le message doit être *Success*.
-3. **Authentication** › **Sign In / Providers** › **Email** : désactive **Confirm email** pour le lancement.
-   *Pourquoi :* l'envoi d'e-mails intégré à Supabase est limité à quelques messages par heure. Plus tard, branche un service d'e-mails gratuit (ex. Resend) dans **Authentication › SMTP** et réactive la confirmation.
+3. **Authentication** › **Sign In / Providers** : active **Allow anonymous sign-ins** et enregistre.
+   *Pourquoi :* Petit Bonbon s'utilise sans compte. Chaque appareil reçoit un identifiant anonyme invisible, qui suffit pour les bonbons, les blocages, les signalements et le paiement. Un vrai compte (e-mail) ne servira que pour le futur Premium.
+   *Conseillé ensuite :* **Authentication › Attack Protection** › active une protection CAPTCHA (Cloudflare Turnstile, gratuit) pour limiter la création d'identifiants en masse.
 4. **Authentication** › **URL Configuration** : *Site URL* = `https://ciapy.github.io/petit-bonbon/`, et ajoute la même adresse dans *Redirect URLs*.
 5. **Project Settings** › **API** : copie **Project URL** et la clé **anon public** dans `config.js`.
    ⚠️ Ne mets **jamais** la clé `service_role` dans `config.js` : ce fichier est public.
@@ -66,9 +67,8 @@ from reports where not handled order by created_at desc;
 update profiles set banned = false where id = '<reported_id>';
 update reports set handled = true where reported_id = '<reported_id>';
 
--- Offrir l'accès à quelqu'un (ex. testeur)
-update profiles set paid_at = now()
-where id = (select id from auth.users where email = 'personne@exemple.fr');
+-- Offrir l'accès à tout le monde pendant les tests : voir paywall_enabled ci-dessus.
+-- (Sans compte, il n'y a pas d'e-mail pour retrouver une personne précise.)
 
 -- Chiffres du jour
 select (select count(*) from profiles where paid_at is not null) as payants,

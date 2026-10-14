@@ -61,6 +61,8 @@ const errMsg = (e) => {
   const raw = (e && (e.message || e.error_description || e.msg)) || String(e || '');
   const code = Object.keys(ERRORS).find((k) => raw.includes(k));
   if (code) return ERRORS[code];
+  if (/anonymous sign-ins are disabled/i.test(raw)) return 'L’entrée sans compte n’est pas encore activée. Réessaie dans quelques minutes.';
+  if (/captcha/i.test(raw)) return 'Vérification anti-robot échouée. Recharge la page et réessaie.';
   if (/Invalid login credentials/i.test(raw)) return 'E-mail ou mot de passe incorrect.';
   if (/already registered|already been registered/i.test(raw)) return 'Un compte existe déjà avec cet e-mail. Connecte-toi.';
   if (/Password should be/i.test(raw)) return 'Le mot de passe doit faire au moins 8 caractères.';
@@ -101,6 +103,9 @@ const ICON = {
 };
 const candy = (fill, size = 88) => `<svg width="${size}" height="${Math.round(size * 56 / 88)}" viewBox="0 0 88 56" aria-hidden="true"><path d="M4 18 L18 28 L4 38 Z" fill="${fill}"/><path d="M84 18 L70 28 L84 38 Z" fill="${fill}"/><ellipse cx="44" cy="28" rx="27" ry="21" fill="${fill}"/><path d="M30 16 Q44 28 30 40" stroke="#F9D9E3" stroke-width="4" fill="none" stroke-linecap="round"/><path d="M44 9 Q58 28 44 47" stroke="#F9D9E3" stroke-width="4" fill="none" stroke-linecap="round"/></svg>`;
 const errorBox = () => (S.error ? `<p class="error" role="alert">${esc(S.error)}</p>` : '');
+const isAnon = () => !!(S.user && S.user.is_anonymous);
+// Un utilisateur sans compte ne se « déconnecte » pas : il perdrait ses blocages et son accès
+const logoutBtn = (cls) => (isAnon() ? '' : `<button class="link muted ${cls}" data-a="logout">Me déconnecter</button>`);
 const legalLinks = () => `<p class="small" style="text-align:center"><a href="cgu.html">CGU</a> · <a href="confidentialite.html">Confidentialité</a> · <a href="mentions-legales.html">Mentions légales</a></p>`;
 
 // ---------- Écrans -----------------------------------------------------
@@ -124,8 +129,13 @@ V.welcome = () => `<section class="screen welcome">
       <div>Pas d’abonnés, pas de likes</div>
       <div>Seule ta ville est partagée, jamais ta position</div>
     </div>
-    <button class="btn" data-a="goAuth" data-mode="signup">Créer mon compte</button>
-    <button class="btn ghost" data-a="goAuth" data-mode="login">J’ai déjà un compte</button>
+    <form class="stack" data-f="enter" novalidate>
+      <label class="check"><input type="checkbox" name="adult"><span>J’ai 18 ans ou plus.</span></label>
+      <label class="check"><input type="checkbox" name="terms"><span>J’accepte les <a href="cgu.html" target="_blank">conditions d’utilisation</a>.</span></label>
+      ${errorBox()}
+      <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Entrer</button>
+    </form>
+    <p class="small" style="text-align:center;margin:0">Sans compte, sans e-mail, sans mot de passe.</p>
     ${legalLinks()}
   </div>
 </section>`;
@@ -179,7 +189,7 @@ V.adult = () => `<section class="screen">
     ${errorBox()}
     <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Continuer</button>
   </form>
-  <button class="link muted spacer" data-a="logout">Me déconnecter</button>
+  ${logoutBtn('spacer')}
 </section>`;
 
 V.paywall = () => {
@@ -200,14 +210,14 @@ V.paywall = () => {
     : '<p class="note">Le paiement ouvre très bientôt. Reviens dans quelques heures !</p>'}
   <button class="btn ghost small" data-a="checkPaid">J’ai payé, actualiser</button>
   <p class="small">Paiement sécurisé par Stripe. Petit Bonbon ne voit jamais ta carte.</p>
-  <button class="link muted spacer" data-a="logout">Me déconnecter</button>
+  ${logoutBtn('spacer')}
 </section>`;
 };
 
 V.banned = () => `<section class="screen center">
   <h2>Compte suspendu</h2>
   <p class="sub">Ce compte a reçu plusieurs signalements et a été suspendu. Si tu penses qu’il s’agit d’une erreur, écris à <a href="mailto:${esc(C.CONTACT_EMAIL)}">${esc(C.CONTACT_EMAIL)}</a>.</p>
-  <button class="link muted" data-a="logout">Me déconnecter</button>
+  ${logoutBtn('')}
 </section>`;
 
 V.identity = () => {
@@ -361,13 +371,13 @@ V.tab_me = () => {
     <div class="premium">
       <span class="kicker">BIENTÔT · PREMIUM</span>
       <h3 style="color:#fff">Tes propres mots, ta voix, ta musique du jour</h3>
-      <p>Messages personnalisés, notes vocales, GIF et musique sur ton identité, tarifs réduits sur les événements.</p>
+      <p>Messages personnalisés, notes vocales, GIF et musique sur ton identité, tarifs réduits sur les événements. Un compte ne sera demandé qu’à ce moment-là.</p>
     </div>
     <button class="btn ghost" data-a="leave">Partir sans laisser de trace</button>
     <div class="stack" style="gap:0">
       <button class="link muted" data-a="share">Partager Petit Bonbon</button>
-      <button class="link muted" data-a="logout">Me déconnecter</button>
-      <button class="link muted" data-a="deleteAccount">Supprimer mon compte et mes données</button>
+      ${logoutBtn('')}
+      <button class="link muted" data-a="deleteAccount">${isAnon() ? 'Effacer toutes mes données de cet appareil' : 'Supprimer mon compte et mes données'}</button>
     </div>
     ${legalLinks()}
   </div>`;
@@ -556,11 +566,11 @@ const A = {
     toast('Identité effacée. À une prochaine fois, sous un autre nom.');
   },
   async deleteAccount() {
-    if (!confirm('Supprimer définitivement ton compte et toutes tes données ? Ton achat ne sera pas remboursé.')) return;
+    if (!confirm('Effacer définitivement toutes tes données (identité, bonbons, réglages) ? Ton accès payé sera perdu et ne sera pas remboursé.')) return;
     try { await rpc('delete_account'); } catch (e) { return toast(errMsg(e)); }
     await sb.auth.signOut();
     S.user = null; S.status = null; S.view = 'welcome'; render();
-    toast('Ton compte et tes données ont été supprimés.');
+    toast('Toutes tes données ont été effacées.');
   },
   openBanner() { S.banner = 0; S.tab = 'inbox'; render(); loadData(); },
   async share() {
@@ -573,6 +583,20 @@ const A = {
 };
 
 const F = {
+  // Entrée sans compte : identifiant anonyme invisible, lié à cet appareil
+  async enter(form) {
+    const fd = new FormData(form);
+    if (!fd.get('adult')) { S.error = 'Petit Bonbon est réservé aux plus de 18 ans.'; return render(); }
+    if (!fd.get('terms')) { S.error = 'Merci d’accepter les conditions d’utilisation.'; return render(); }
+    S.busy = true; S.error = ''; render();
+    try {
+      const { data, error } = await sb.auth.signInAnonymously();
+      if (error) throw error;
+      S.user = data.user;
+      await rpc('confirm_adult');
+      S.busy = false; S.view = 'loading'; await route();
+    } catch (e) { S.busy = false; S.error = errMsg(e); render(); }
+  },
   async auth(form) {
     const fd = new FormData(form);
     const email = String(fd.get('email') || '').trim(), password = String(fd.get('password') || '');
