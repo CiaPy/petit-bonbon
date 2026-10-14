@@ -1,0 +1,20 @@
+// =====================================================================
+// Petit Bonbon — configuration
+// Remplace les valeurs ci-dessous (voir README.md, étapes 2 à 4).
+// Tout ce qui est ici est PUBLIC par nature : ne mets JAMAIS la clé
+// « service_role » de Supabase ni une clé secrète Stripe dans ce fichier.
+// =====================================================================
+window.PB_CONFIG = {
+  // Supabase › Project Settings › API › Project URL
+  SUPABASE_URL: "COLLE_ICI_L_URL_SUPABASE",
+
+  // Supabase › Project Settings › API › anon public key
+  SUPABASE_ANON_KEY: "COLLE_ICI_LA_CLE_ANON",
+
+  // Stripe › Liens de paiement › ton lien à 0,99 € (ex. https://buy.stripe.com/xxxx)
+  // Laisse vide tant que Stripe n'est pas prêt : l'écran de paiement le signalera.
+  STRIPE_PAYMENT_LINK: "",
+
+  // Adresse affichée pour le contact et les signalements urgents
+  CONTACT_EMAIL: "contact@exemple.fr",
+};

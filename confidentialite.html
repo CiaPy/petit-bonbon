@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confidentialité · Petit Bonbon</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=DM+Sans:opsz,wght@9..40,400;9..40,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script>
+</head>
+<body>
+<article class="legal">
+<p><a href="./">← Retour à Petit Bonbon</a></p>
+<h1>Politique de confidentialité</h1>
+<p class="small">Version du 14 octobre 2026 — projet à faire relire avant publication définitive.</p>
+
+<h2>Le principe</h2>
+<p>Petit Bonbon collecte le strict minimum : de quoi faire fonctionner les échanges, assurer la sécurité et gérer le paiement. Pas de publicité, pas de revente de données, pas de géolocalisation.</p>
+
+<h2>Responsable du traitement</h2>
+<p>L'éditeur indiqué dans les <a href="mentions-legales.html">mentions légales</a>. Contact : <a class="pb-contact" href="#"></a>.</p>
+
+<h2>Données traitées</h2>
+<ul>
+<li><strong>Compte</strong> : adresse e-mail et mot de passe (chiffré), déclaration de majorité, date de paiement. Finalité : authentification et accès (exécution du contrat). Conservation : jusqu'à la suppression du compte.</li>
+<li><strong>Identité du jour</strong> : pseudo, humeurs, phrase facultative, ville où l'on se trouve et ville d'origine déclarées. Visibles par les autres utilisateurs de la même ville. Supprimée automatiquement au bout de 12 heures ou quand l'utilisateur part.</li>
+<li><strong>Bonbons</strong> : qui a envoyé quel compliment à qui, avec le pseudo et la ville affichés au moment de l'envoi. Visibles uniquement par l'expéditeur et le destinataire pendant 30 jours ; conservés jusqu'à la suppression du compte.</li>
+<li><strong>Sécurité</strong> : blocages et signalements, avec le pseudo et la phrase signalés. Finalité : protection des utilisateurs (intérêt légitime). Conservation : jusqu'à un an après le traitement du signalement.</li>
+<li><strong>Paiement</strong> : traité directement par Stripe. Petit Bonbon ne reçoit que la confirmation du paiement, jamais les données de carte.</li>
+</ul>
+<p>Petit Bonbon ne demande jamais la position GPS. Seule la ville saisie par l'utilisateur est utilisée.</p>
+
+<h2>Sous-traitants</h2>
+<ul>
+<li>Supabase Inc. (base de données et authentification) — données hébergées dans la région [RÉGION CHOISIE, ex. Europe — Paris].</li>
+<li>Stripe Payments Europe Ltd. (paiement), Irlande.</li>
+<li>GitHub Inc. (hébergement des pages de l'application), États-Unis — aucune donnée personnelle des utilisateurs n'y est stockée.</li>
+<li>Google Fonts (affichage des polices de caractères).</li>
+</ul>
+<p>Lorsque des données sont transférées hors de l'Union européenne, ces transferts sont encadrés par les garanties prévues par le RGPD (clauses contractuelles types ou Data Privacy Framework).</p>
+
+<h2>Tes droits</h2>
+<p>Tu disposes d'un droit d'accès, de rectification, d'effacement, d'opposition, de limitation et de portabilité. Tu peux supprimer ton compte et toutes tes données à tout moment depuis l'onglet « Moi ». Pour toute autre demande : <a class="pb-contact" href="#"></a>. Tu peux aussi introduire une réclamation auprès de la CNIL (cnil.fr).</p>
+
+<h2>Stockage local</h2>
+<p>L'application conserve sur ton appareil ta session de connexion et la dernière ville saisie, pour t'éviter de les retaper. Aucun cookie publicitaire ni outil de mesure d'audience n'est utilisé.</p>
+</article>
+<script>
+document.querySelectorAll('.pb-contact').forEach(function (a) {
+  var m = (window.PB_CONFIG || {}).CONTACT_EMAIL || '';
+  a.textContent = m; a.href = 'mailto:' + m;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,96 @@
+# Petit Bonbon
+
+**Des inconnus. Des compliments. Aucune pression.**
+
+Application web installable (PWA) : on choisit une identité du jour, on découvre les personnes présentes dans la même ville, et on leur envoie un compliment choisi dans une liste. Accès à 0,99 € en paiement unique.
+
+Coût fixe : **0 €** — GitHub Pages (hébergement), Supabase offre gratuite (comptes et base de données), Stripe (commission uniquement à chaque vente).
+
+---
+
+## Mise en ligne, pas à pas
+
+### 1. Activer GitHub Pages (1 min)
+Dépôt › **Settings** › **Pages** › *Build and deployment* › Source : **Deploy from a branch** › Branche **main**, dossier **/ (root)** › **Save**.
+
+L'app sera en ligne à l'adresse **https://ciapy.github.io/petit-bonbon/** (1 à 2 minutes après).
+
+### 2. Créer la base Supabase (5 min)
+1. Sur [supabase.com](https://supabase.com), **New project**. Région conseillée : **West EU (Paris)**. Note le mot de passe de la base quelque part.
+2. **SQL Editor** › **New query** › colle tout le contenu de `supabase/schema.sql` › **Run**. Le message doit être *Success*.
+3. **Authentication** › **Sign In / Providers** › **Email** : désactive **Confirm email** pour le lancement.
+   *Pourquoi :* l'envoi d'e-mails intégré à Supabase est limité à quelques messages par heure. Plus tard, branche un service d'e-mails gratuit (ex. Resend) dans **Authentication › SMTP** et réactive la confirmation.
+4. **Authentication** › **URL Configuration** : *Site URL* = `https://ciapy.github.io/petit-bonbon/`, et ajoute la même adresse dans *Redirect URLs*.
+5. **Project Settings** › **API** : copie **Project URL** et la clé **anon public** dans `config.js`.
+   ⚠️ Ne mets **jamais** la clé `service_role` dans `config.js` : ce fichier est public.
+
+### 3. Créer le paiement Stripe (10 min)
+1. Crée ton compte sur [stripe.com](https://stripe.com) et complète la vérification d'identité.
+2. **Catalogue de produits** › **Ajouter un produit** : « Accès Petit Bonbon », **0,99 €**, paiement **unique**.
+3. **Liens de paiement** › **Nouveau** › ce produit. Dans les options :
+   - *Après le paiement* › **Ne pas afficher de page de confirmation, rediriger vers votre site** : `https://ciapy.github.io/petit-bonbon/?paid=1`
+   - **Exiger que les clients acceptent vos conditions d'utilisation** (renseigne l'adresse de `cgu.html` dans les paramètres publics Stripe), et ajoute ce texte personnalisé :
+     *« Je demande l'activation immédiate de mon accès et je renonce à mon droit de rétractation. »*
+4. Copie le lien (`https://buy.stripe.com/…`) dans `config.js` › `STRIPE_PAYMENT_LINK`.
+
+### 4. Débloquer l'accès après paiement (10 min)
+1. Supabase › **Edge Functions** › **Deploy a new function** › **Via Editor**. Nom : `stripe-webhook`. Colle le contenu de `supabase/functions/stripe-webhook/index.ts` › **Deploy**.
+2. Dans les détails de la fonction, désactive **Verify JWT** (Stripe n'envoie pas de jeton Supabase ; la sécurité vient de la signature Stripe).
+3. Stripe › **Développeurs** › **Webhooks** › **Ajouter une destination** :
+   - URL : `https://<ID-DU-PROJET>.supabase.co/functions/v1/stripe-webhook`
+   - Événements : `checkout.session.completed` et `checkout.session.async_payment_succeeded`
+4. Copie le **secret de signature** (`whsec_…`) › Supabase › **Edge Functions** › **Secrets** › nouveau secret `STRIPE_WEBHOOK_SECRET`.
+5. Teste avec un vrai paiement de 0,99 € : l'écran de paiement doit disparaître tout seul.
+
+### 5. Compléter les pages légales
+Remplace les `[CROCHETS]` dans `mentions-legales.html`, `cgu.html` et `confidentialite.html`, et mets ton adresse de contact dans `config.js`. Vendre suppose un statut (ex. micro-entreprise) et un numéro SIRET. Fais relire ces textes avant de lancer à grande échelle.
+
+---
+
+## Pilotage au quotidien (Supabase › SQL Editor)
+
+```sql
+-- Ouvrir l'app gratuitement (soirée de lancement, événement…)
+update app_settings set paywall_enabled = false;
+-- …et refermer
+update app_settings set paywall_enabled = true;
+
+-- Changer le nombre de bonbons par jour
+update app_settings set daily_send_limit = 15;
+
+-- Signalements à traiter
+select created_at, reason, pseudo_seen, bio_seen, reported_id
+from reports where not handled order by created_at desc;
+
+-- Lever une suspension (après vérification)
+update profiles set banned = false where id = '<reported_id>';
+update reports set handled = true where reported_id = '<reported_id>';
+
+-- Offrir l'accès à quelqu'un (ex. testeur)
+update profiles set paid_at = now()
+where id = (select id from auth.users where email = 'personne@exemple.fr');
+
+-- Chiffres du jour
+select (select count(*) from profiles where paid_at is not null) as payants,
+       (select count(*) from sessions where expires_at > now())   as connectes,
+       (select count(*) from bonbons where created_at > now() - interval '24 hours') as bonbons_24h;
+```
+
+## Sécurité, en bref
+- Aucune table n'est lisible directement depuis le navigateur : tout passe par des fonctions qui vérifient l'appelant et ne renvoient que le nécessaire. Les identifiants des autres utilisateurs ne sortent jamais de la base.
+- Compliments uniquement choisis dans une liste (pas de texte libre). Le pseudo et la phrase de présentation sont libres mais courts, et signalables.
+- Signaler bloque définitivement dans les deux sens ; 3 signalements distincts en 30 jours suspendent le compte.
+- 10 bonbons par jour maximum, un seul par personne et par jour.
+- Ville uniquement, jamais de position GPS. Identité du jour effacée après 12 h.
+
+## Structure
+```
+index.html, style.css, app.js   l'application
+config.js                       réglages publics (Supabase, Stripe, contact)
+manifest.webmanifest, sw.js     installation sur l'écran d'accueil
+cgu.html, confidentialite.html, mentions-legales.html
+supabase/schema.sql             base de données et règles de sécurité
+supabase/functions/stripe-webhook/index.ts   déblocage après paiement
+```
+
+**Ajouter des compliments :** ajoute-les **à la fin** de la liste `COMPLIMENTS` dans `app.js` (12 maximum ; la base stocke leur numéro).

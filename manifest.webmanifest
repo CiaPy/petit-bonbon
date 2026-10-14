@@ -1,0 +1,16 @@
+{
+  "name": "Petit Bonbon",
+  "short_name": "Petit Bonbon",
+  "description": "Des inconnus. Des compliments. Aucune pression.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FBF1EE",
+  "theme_color": "#FBF1EE",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

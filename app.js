@@ -1,0 +1,671 @@
+// =====================================================================
+// Petit Bonbon — application web
+// Une seule page, sans étape de build : tout est servi tel quel par
+// GitHub Pages. Les données passent par Supabase (voir supabase/schema.sql).
+// =====================================================================
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+const C = window.PB_CONFIG || {};
+const CONFIGURED = !!(C.SUPABASE_URL && C.SUPABASE_ANON_KEY && !/COLLE_ICI/.test(C.SUPABASE_URL + C.SUPABASE_ANON_KEY));
+const sb = CONFIGURED ? createClient(C.SUPABASE_URL, C.SUPABASE_ANON_KEY) : null;
+
+// L'ordre compte : la base stocke l'indice (0 à 11). Ne pas réordonner, seulement ajouter à la fin (max 12).
+const COMPLIMENTS = [
+  'Ton énergie se voit de loin.',
+  'Tu as l’air de quelqu’un avec qui on rit bien.',
+  'Ta façon de te présenter m’a fait sourire.',
+  'Merci d’être là ce soir.',
+  'Ton humeur du jour est contagieuse.',
+  'Tu donnes envie de passer une bonne soirée.',
+  'Ton style te va très bien.',
+  'Tu as l’air d’une belle personne.',
+  'Ta phrase du jour m’a fait du bien.',
+  'Je suis content·e de te croiser ici.',
+  'Garde ce sourire, il est précieux.',
+  'Tu rends cette ville plus douce.',
+];
+// Doit correspondre à la liste « allowed » de start_session dans schema.sql
+const MOODS = ['Joyeux·se', 'Rêveur·se', 'Curieux·se', 'Calme', 'De passage', 'Fatigué·e mais là', 'Bavard·e', 'Timide', 'En balade'];
+const CITIES = ['Paris', 'Marseille', 'Lyon', 'Toulouse', 'Nice', 'Nantes', 'Montpellier', 'Strasbourg', 'Bordeaux', 'Lille', 'Rennes', 'Reims', 'Toulon', 'Saint-Étienne', 'Le Havre', 'Grenoble', 'Dijon', 'Angers', 'Nîmes', 'Clermont-Ferrand', 'Orléans', 'Tours', 'Brest', 'Limoges', 'Amiens', 'Metz', 'Perpignan', 'Besançon', 'Caen', 'Rouen', 'Nancy', 'Avignon', 'La Rochelle', 'Poitiers', 'Pau', 'Bayonne', 'Annecy', 'Bruxelles', 'Genève', 'Lausanne', 'Montréal'];
+const REASONS = ['Message ou profil déplacé', 'Contenu sexuel', 'Je pense que c’est un·e mineur·e', 'Insistance ou harcèlement', 'Autre chose me met mal à l’aise'];
+const AVATAR_COLORS = ['#F9D9E3', '#D5EEE8', '#FBE6CC', '#E3DDF5'];
+const ERRORS = {
+  PAYWALL: 'L’accès à Petit Bonbon n’est pas encore activé sur ce compte.',
+  ADULT: 'Petit Bonbon est réservé aux plus de 18 ans.',
+  BANNED: 'Ce compte a été suspendu suite à des signalements.',
+  LIMIT: 'Tu as envoyé tous tes bonbons pour aujourd’hui. Reviens demain !',
+  ALREADY: 'Tu as déjà envoyé un bonbon à cette personne aujourd’hui.',
+  GONE: 'Cette personne n’est plus disponible.',
+  NO_SESSION: 'Ton identité du jour a expiré. Recrée-la pour continuer.',
+  BAD_MOOD: 'Humeur non reconnue.',
+  AUTH: 'Ta session a expiré, reconnecte-toi.',
+};
+
+// ---------- État -------------------------------------------------------
+const S = {
+  view: 'loading',          // setup | welcome | auth | checkmail | newpass | adult | paywall | banned | identity | main
+  tab: 'discover',          // discover | send | sentok | inbox | me
+  user: null, status: null,
+  authMode: 'signup', error: '', busy: false,
+  form: { pseudo: '', moods: [], bio: '', city: '', home: '' },
+  people: [], peopleLoaded: false, inbox: [], sent: [],
+  target: null, pick: 0, lastSentText: '',
+  report: null,            // { bonbonId?, sessionId?, pseudo }
+  banner: 0, seenInbox: null,
+};
+
+// ---------- Utilitaires ------------------------------------------------
+const $app = document.getElementById('app');
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const errMsg = (e) => {
+  const raw = (e && (e.message || e.error_description || e.msg)) || String(e || '');
+  const code = Object.keys(ERRORS).find((k) => raw.includes(k));
+  if (code) return ERRORS[code];
+  if (/Invalid login credentials/i.test(raw)) return 'E-mail ou mot de passe incorrect.';
+  if (/already registered|already been registered/i.test(raw)) return 'Un compte existe déjà avec cet e-mail. Connecte-toi.';
+  if (/Password should be/i.test(raw)) return 'Le mot de passe doit faire au moins 8 caractères.';
+  if (/rate limit|too many/i.test(raw)) return 'Trop de tentatives, réessaie dans quelques minutes.';
+  if (/Failed to fetch|NetworkError/i.test(raw)) return 'Connexion impossible. Vérifie ton réseau.';
+  return 'Oups, quelque chose n’a pas marché. Réessaie.';
+};
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 3600);
+}
+async function rpc(name, args) {
+  const { data, error } = await sb.rpc(name, args || {});
+  if (error) throw error;
+  return data;
+}
+const timeAgo = (iso) => {
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1) return 'à l’instant';
+  if (m < 60) return `il y a ${m} min`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `il y a ${h} h`;
+  const d = Math.round(h / 24);
+  return d === 1 ? 'hier' : `il y a ${d} jours`;
+};
+
+const ICON = {
+  back: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>',
+  pin: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+  search: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>',
+  inbox: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 13l3-8h10l3 8v6H4z"/><path d="M4 13h5a3 3 0 0 0 6 0h5"/></svg>',
+  me: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  refresh: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
+  lock: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+};
+const candy = (fill, size = 88) => `<svg width="${size}" height="${Math.round(size * 56 / 88)}" viewBox="0 0 88 56" aria-hidden="true"><path d="M4 18 L18 28 L4 38 Z" fill="${fill}"/><path d="M84 18 L70 28 L84 38 Z" fill="${fill}"/><ellipse cx="44" cy="28" rx="27" ry="21" fill="${fill}"/><path d="M30 16 Q44 28 30 40" stroke="#F9D9E3" stroke-width="4" fill="none" stroke-linecap="round"/><path d="M44 9 Q58 28 44 47" stroke="#F9D9E3" stroke-width="4" fill="none" stroke-linecap="round"/></svg>`;
+const errorBox = () => (S.error ? `<p class="error" role="alert">${esc(S.error)}</p>` : '');
+const legalLinks = () => `<p class="small" style="text-align:center"><a href="cgu.html">CGU</a> · <a href="confidentialite.html">Confidentialité</a> · <a href="mentions-legales.html">Mentions légales</a></p>`;
+
+// ---------- Écrans -----------------------------------------------------
+const V = {};
+
+V.setup = () => `<section class="screen center">
+  ${candy('#C2255C')}
+  <h2>Presque prêt</h2>
+  <p class="sub">L’application n’est pas encore reliée à sa base de données. Renseigne <code>config.js</code> en suivant le README.</p>
+</section>`;
+
+V.welcome = () => `<section class="screen welcome">
+  <div class="stack" style="gap:28px">
+    ${candy('#C2255C')}
+    <h1>Petit<br>Bonbon</h1>
+    <p class="lead">Un inconnu, un petit mot, une nouvelle possibilité.</p>
+  </div>
+  <div class="stack" style="gap:16px">
+    <div class="bullets">
+      <div>Pas de profil à entretenir</div>
+      <div>Pas d’abonnés, pas de likes</div>
+      <div>Seule ta ville est partagée, jamais ta position</div>
+    </div>
+    <button class="btn" data-a="goAuth" data-mode="signup">Créer mon compte</button>
+    <button class="btn ghost" data-a="goAuth" data-mode="login">J’ai déjà un compte</button>
+    ${legalLinks()}
+  </div>
+</section>`;
+
+V.auth = () => {
+  const signup = S.authMode === 'signup';
+  return `<section class="screen">
+  <button class="link muted" data-a="goWelcome" aria-label="Retour" style="align-self:flex-start;display:flex;align-items:center">${ICON.back}</button>
+  <div class="stack" style="gap:6px">
+    <h2>${signup ? 'Créer mon compte' : 'Content·e de te revoir'}</h2>
+    <p class="sub">${signup ? 'Ton e-mail reste privé. Personne ne le verra dans l’app.' : 'Connecte-toi pour retrouver tes bonbons.'}</p>
+  </div>
+  <form class="stack" data-f="auth" novalidate>
+    <div class="field"><label for="email">E-mail</label><input id="email" name="email" type="email" autocomplete="email" required></div>
+    <div class="field"><label for="password">Mot de passe</label><input id="password" name="password" type="password" minlength="8" autocomplete="${signup ? 'new-password' : 'current-password'}" required></div>
+    ${signup ? `
+    <label class="check"><input type="checkbox" name="adult" required><span>J’ai 18 ans ou plus.</span></label>
+    <label class="check"><input type="checkbox" name="terms" required><span>J’accepte les <a href="cgu.html" target="_blank">conditions d’utilisation</a> et la <a href="confidentialite.html" target="_blank">politique de confidentialité</a>.</span></label>` : ''}
+    ${errorBox()}
+    <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>${signup ? 'Créer mon compte' : 'Me connecter'}</button>
+  </form>
+  <div class="stack" style="gap:0">
+    <button class="link" data-a="goAuth" data-mode="${signup ? 'login' : 'signup'}">${signup ? 'J’ai déjà un compte' : 'Créer un compte'}</button>
+    ${signup ? '' : '<button class="link muted" data-a="forgot">Mot de passe oublié ?</button>'}
+  </div>
+</section>`;
+};
+
+V.checkmail = () => `<section class="screen center">
+  ${candy('#1D6B5E')}
+  <h2>Vérifie ta boîte mail</h2>
+  <p class="sub">On vient de t’envoyer un lien. Clique dessus pour activer ton compte, puis reviens ici.</p>
+  <button class="btn ghost small" data-a="goAuth" data-mode="login">Me connecter</button>
+</section>`;
+
+V.newpass = () => `<section class="screen">
+  <h2>Nouveau mot de passe</h2>
+  <form class="stack" data-f="newpass">
+    <div class="field"><label for="np">Mot de passe (8 caractères minimum)</label><input id="np" name="password" type="password" minlength="8" autocomplete="new-password" required></div>
+    ${errorBox()}
+    <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Enregistrer</button>
+  </form>
+</section>`;
+
+V.adult = () => `<section class="screen">
+  <h2>Une dernière chose</h2>
+  <p class="sub">Petit Bonbon met en relation des inconnus. L’application est réservée aux adultes.</p>
+  <form class="stack" data-f="adult">
+    <label class="check"><input type="checkbox" name="adult" required><span>J’ai 18 ans ou plus.</span></label>
+    <label class="check"><input type="checkbox" name="terms" required><span>J’accepte les <a href="cgu.html" target="_blank">conditions d’utilisation</a>.</span></label>
+    ${errorBox()}
+    <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Continuer</button>
+  </form>
+  <button class="link muted spacer" data-a="logout">Me déconnecter</button>
+</section>`;
+
+V.paywall = () => {
+  const ready = !!C.STRIPE_PAYMENT_LINK;
+  return `<section class="screen">
+  ${candy('#C2255C', 72)}
+  <div class="stack" style="gap:8px">
+    <h2>Un petit bonbon pour entrer</h2>
+    <p class="sub">L’accès à Petit Bonbon coûte <strong style="color:var(--ink)">0,99 €</strong>, une seule fois. Ce petit prix garde l’app entre vraies personnes : pas de faux comptes, pas de trolls.</p>
+  </div>
+  <div class="bullets">
+    <div>Envoie et reçois des compliments</div>
+    <div>Change d’identité quand tu veux</div>
+    <div>Paiement unique, sans abonnement</div>
+  </div>
+  ${ready
+    ? `<a class="btn" href="${esc(payLink())}" rel="noopener">Payer 0,99 €</a>`
+    : '<p class="note">Le paiement ouvre très bientôt. Reviens dans quelques heures !</p>'}
+  <button class="btn ghost small" data-a="checkPaid">J’ai payé, actualiser</button>
+  <p class="small">Paiement sécurisé par Stripe. Petit Bonbon ne voit jamais ta carte.</p>
+  <button class="link muted spacer" data-a="logout">Me déconnecter</button>
+</section>`;
+};
+
+V.banned = () => `<section class="screen center">
+  <h2>Compte suspendu</h2>
+  <p class="sub">Ce compte a reçu plusieurs signalements et a été suspendu. Si tu penses qu’il s’agit d’une erreur, écris à <a href="mailto:${esc(C.CONTACT_EMAIL)}">${esc(C.CONTACT_EMAIL)}</a>.</p>
+  <button class="link muted" data-a="logout">Me déconnecter</button>
+</section>`;
+
+V.identity = () => {
+  const f = S.form;
+  const canBack = !!(S.status && S.status.session);
+  return `<section class="screen">
+  ${canBack ? `<button class="link muted" data-a="tab" data-tab="me" aria-label="Retour" style="align-self:flex-start;display:flex;align-items:center">${ICON.back}</button>` : ''}
+  <div class="stack" style="gap:6px">
+    <h2>Qui es-tu aujourd’hui ?</h2>
+    <p class="sub">Ton identité du jour disparaît au bout de 12 heures, ou quand tu pars. Demain, tu pourras être quelqu’un d’autre.</p>
+  </div>
+  <form class="stack" style="gap:20px" data-f="identity">
+    <div class="field"><label for="pseudo">Prénom ou pseudo</label>
+      <input id="pseudo" name="pseudo" maxlength="20" value="${esc(f.pseudo)}" placeholder="Vide = « Quelqu’un de passage »" data-bind="pseudo"></div>
+    <div class="stack" style="gap:10px">
+      <div class="row" style="justify-content:space-between"><span class="label">Ton humeur</span><span class="small">${f.moods.length}/3</span></div>
+      <div class="chips">${MOODS.map((m) => `<button type="button" class="chip" data-a="mood" data-mood="${esc(m)}" aria-pressed="${f.moods.includes(m)}">${esc(m)}</button>`).join('')}</div>
+    </div>
+    <div class="field"><label for="bio">Un mot sur toi <span style="font-weight:400;color:var(--muted)">(facultatif)</span></label>
+      <textarea id="bio" name="bio" rows="2" maxlength="80" placeholder="Ex. : je cherche le meilleur croissant du quartier" data-bind="bio">${esc(f.bio)}</textarea>
+      <span class="small">Reste bienveillant·e : chaque profil peut être signalé.</span></div>
+    <div class="field"><label for="city">Où es-tu en ce moment ?</label>
+      <input id="city" name="city" list="cities" maxlength="60" required value="${esc(f.city)}" placeholder="Ta ville" data-bind="city" autocomplete="address-level2"></div>
+    <div class="field"><label for="home">D’où viens-tu ? <span style="font-weight:400;color:var(--muted)">(si tu es de passage)</span></label>
+      <input id="home" name="home" list="cities" maxlength="60" value="${esc(f.home)}" placeholder="Vide = j’habite ici" data-bind="home"></div>
+    <datalist id="cities">${CITIES.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
+    <div class="note">${ICON.pin}<span>Seule ta ville est partagée. Ta position exacte n’est jamais demandée.</span></div>
+    ${errorBox()}
+    <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Entrer</button>
+  </form>
+</section>`;
+};
+
+const cityLabel = (s) => (s && s.session ? s.session.current_city : '');
+
+V.main = () => {
+  const s = S.status.session;
+  const unread = S.inbox.filter((m) => m.status === 'open').length;
+  const body = (V['tab_' + S.tab] || V.tab_discover)();
+  const navOn = (t) => (S.tab === t || (t === 'discover' && (S.tab === 'send' || S.tab === 'sentok')) ? 'aria-current="page"' : '');
+  return `
+  <header class="topbar">
+    <div class="who"><span>Aujourd’hui tu es</span><strong>${esc(s.pseudo)}</strong></div>
+    <span class="pill">${ICON.pin}${esc(s.current_city)}</span>
+  </header>
+  ${body}
+  ${S.tab === 'send' || S.tab === 'sentok' ? '' : `
+  <nav class="nav" aria-label="Navigation principale">
+    <button data-a="tab" data-tab="discover" ${navOn('discover')}>${ICON.search}Découvrir</button>
+    <button data-a="tab" data-tab="inbox" ${navOn('inbox')}>${ICON.inbox}Reçus${unread ? `<span class="count">${unread}</span>` : ''}</button>
+    <button data-a="tab" data-tab="me" ${navOn('me')}>${ICON.me}Moi</button>
+  </nav>`}
+  ${S.banner ? `<button class="banner" data-a="openBanner">${candy('#F38BAF', 36)}<span><strong>Un petit bonbon pour toi</strong><span>${S.banner > 1 ? `${S.banner} inconnus t’ont envoyé un compliment.` : 'Un inconnu t’a envoyé un compliment.'}</span></span></button>` : ''}
+  ${S.report ? V.reportSheet() : ''}`;
+};
+
+V.tab_discover = () => {
+  const city = cityLabel(S.status);
+  const left = Math.max(0, S.status.daily_limit - S.status.sent_today);
+  let list;
+  if (!S.peopleLoaded) list = '<p class="empty">Chargement…</p>';
+  else if (!S.people.length) list = `<div class="empty">${candy('#E2CFCB', 64)}<strong style="color:var(--ink)">Personne d’autre à ${esc(city)} pour l’instant.</strong><span>Reviens un peu plus tard, ou partage Petit Bonbon autour de toi.</span><button class="btn small soft" data-a="share">Partager l’app</button></div>`;
+  else list = S.people.map((p, i) => {
+    const badge = p.local
+      ? `<span class="badge local">Vous êtes tous les deux à ${esc(city)}</span>`
+      : `<span class="badge away">De passage · vient de ${esc(p.home_city)}</span>`;
+    return `<article class="card">
+      <div class="person">
+        <div class="avatar" style="background:${AVATAR_COLORS[i % 4]}">${esc((p.pseudo || '?').charAt(0).toUpperCase())}</div>
+        <div class="stack" style="gap:3px;min-width:0"><span class="name">${esc(p.pseudo)}</span>${p.moods && p.moods.length ? `<span class="moods">${esc(p.moods.join(' · '))}</span>` : ''}</div>
+      </div>
+      ${p.bio ? `<p class="bio">« ${esc(p.bio)} »</p>` : ''}
+      <div class="card-foot">${badge}
+        ${p.already_sent
+          ? '<span class="small">Bonbon envoyé aujourd’hui</span>'
+          : `<button class="btn small dark" data-a="pickTarget" data-i="${i}">Envoyer un bonbon</button>`}
+      </div>
+      <button class="link muted" style="align-self:flex-start;font-size:13px" data-a="reportSession" data-i="${i}">Signaler ce profil</button>
+    </article>`;
+  }).join('');
+  return `<div class="scroll">
+    <div class="row" style="justify-content:space-between;padding:0 4px">
+      <h2 style="font-size:26px">Autour de toi</h2>
+      <button class="btn small ghost" data-a="refresh" aria-label="Actualiser" style="min-width:44px;padding:0 12px">${ICON.refresh}</button>
+    </div>
+    <p class="small" style="margin:0 4px">${left} bonbon${left > 1 ? 's' : ''} à offrir aujourd’hui. Aucune distance n’est affichée.</p>
+    ${list}
+  </div>`;
+};
+
+V.tab_send = () => {
+  const t = S.target;
+  return `<div class="scroll">
+    <button class="link muted" data-a="tab" data-tab="discover" style="display:flex;align-items:center;gap:6px;align-self:flex-start">${ICON.back}Retour</button>
+    <div class="stack" style="gap:8px;padding:0 4px">
+      <h2 style="font-size:28px">Un bonbon pour ${esc(t.pseudo)}</h2>
+      ${t.local ? `<span class="badge local" style="align-self:flex-start">Vous êtes tous les deux à ${esc(cityLabel(S.status))}</span>` : `<span class="badge away" style="align-self:flex-start">De passage · vient de ${esc(t.home_city)}</span>`}
+    </div>
+    <div role="radiogroup" aria-label="Choisis un compliment" class="stack" style="gap:10px">
+      ${COMPLIMENTS.map((c, i) => `<button type="button" role="radio" class="compliment" aria-checked="${S.pick === i}" data-a="pick" data-i="${i}"><span class="dot"></span><span>${esc(c)}</span></button>`).join('')}
+    </div>
+    <div class="note">${ICON.lock}<span>Les messages personnalisés arriveront avec Premium. Pour l’instant, on garde ça doux et simple.</span></div>
+    ${errorBox()}
+    <button class="btn" data-a="send" ${S.busy ? 'disabled' : ''}>Envoyer le bonbon</button>
+  </div>`;
+};
+
+V.tab_sentok = () => `<section class="screen center">
+  ${candy('#1D6B5E', 120)}
+  <h2>Ton bonbon est parti</h2>
+  <p class="sub" style="max-width:300px">${esc(S.target ? S.target.pseudo : '')} recevra « ${esc(S.lastSentText)} » de la part de <strong style="color:var(--ink)">${esc(S.status.session.pseudo)}</strong>. Rien d’autre.</p>
+  <button class="btn dark small" data-a="tab" data-tab="discover">Continuer à découvrir</button>
+</section>`;
+
+V.tab_inbox = () => {
+  const city = cityLabel(S.status);
+  const rec = S.inbox.length ? S.inbox.map((m) => `<article class="card">
+      <span class="context">${m.local ? 'Vous êtes dans la même ville, mais vous ne vous connaissez pas.' : `Un inconnu de passage à ${esc(city)}, venu de ${esc(m.sender_home_city)}.`}</span>
+      <p class="quote">« ${esc(COMPLIMENTS[m.compliment_id] || '')} »</p>
+      <span class="small">— ${esc(m.sender_pseudo)} · ${timeAgo(m.created_at)}</span>
+      ${m.status === 'open' ? `<div class="row">
+          <button class="btn small soft" data-a="thank" data-id="${esc(m.id)}">Dire merci</button>
+          <button class="btn small ghost" style="border-width:1px;border-color:var(--field);color:var(--muted)" data-a="reportBonbon" data-id="${esc(m.id)}">Signaler</button>
+        </div>` : ''}
+      ${m.status === 'thanked' ? '<span class="small" style="color:var(--accent-deep);font-weight:700">Merci envoyé. La conversation s’arrête là, en douceur.</span>' : ''}
+      ${m.status === 'reported' ? '<span class="small">Signalé et bloqué. Cette personne ne peut plus t’écrire, quel que soit son pseudo.</span>' : ''}
+    </article>`).join('')
+    : `<div class="empty">${candy('#E2CFCB', 64)}<span>Pas encore de bonbon. Garde l’app ouverte, on te prévient dès qu’un compliment arrive.</span></div>`;
+  const sent = S.sent.length ? `<h3 style="margin:12px 4px 0">Tes bonbons envoyés</h3>` + S.sent.map((m) => `<div class="card" style="gap:6px;padding:14px 16px">
+      <span style="font-size:15px">« ${esc(COMPLIMENTS[m.compliment_id] || '')} » à <strong>${esc(m.recipient_pseudo)}</strong></span>
+      <span class="small">${timeAgo(m.created_at)}${m.thanked ? ' · <strong style="color:var(--accent-deep)">Merci reçu</strong>' : ''}</span>
+    </div>`).join('') : '';
+  return `<div class="scroll"><h2 style="font-size:26px;margin:0 4px">Tes petits bonbons</h2>${rec}${sent}</div>`;
+};
+
+V.tab_me = () => {
+  const st = S.status, s = st.session;
+  const tg = (key, label, hint) => `<button class="toggle" role="switch" aria-checked="${!!st[key]}" data-a="toggle" data-key="${key}"><span class="txt"><strong>${label}</strong><span>${hint}</span></span><span class="track"></span></button>`;
+  return `<div class="scroll">
+    <div class="card" style="gap:6px">
+      <span class="small">Identité du jour · expire ${new Date(s.expires_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+      <h3>${esc(s.pseudo)}</h3>
+      <span class="small">${s.moods && s.moods.length ? esc(s.moods.join(' · ')) : 'Pas d’humeur affichée'}</span>
+      <button class="link" data-a="editIdentity" style="align-self:flex-start">Changer d’identité</button>
+    </div>
+    <div class="card" style="padding:6px 18px;gap:0">
+      <span class="small" style="padding-top:12px">Ce que je reçois</span>
+      ${tg('receive_on', 'Recevoir des bonbons', 'Si c’est coupé, tu n’apparais plus dans « Découvrir ».')}
+      ${tg('same_city_only', 'Seulement des gens de ma ville', 'Les personnes de passage ne te verront pas.')}
+    </div>
+    <div class="premium">
+      <span class="kicker">BIENTÔT · PREMIUM</span>
+      <h3 style="color:#fff">Tes propres mots, ta voix, ta musique du jour</h3>
+      <p>Messages personnalisés, notes vocales, GIF et musique sur ton identité, tarifs réduits sur les événements.</p>
+    </div>
+    <button class="btn ghost" data-a="leave">Partir sans laisser de trace</button>
+    <div class="stack" style="gap:0">
+      <button class="link muted" data-a="share">Partager Petit Bonbon</button>
+      <button class="link muted" data-a="logout">Me déconnecter</button>
+      <button class="link muted" data-a="deleteAccount">Supprimer mon compte et mes données</button>
+    </div>
+    ${legalLinks()}
+  </div>`;
+};
+
+V.reportSheet = () => `<div class="sheet-back" data-a="closeReport">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Signaler" data-stop="1">
+    <h3 style="margin-bottom:4px">Qu’est-ce qui ne va pas ?</h3>
+    <p class="small" style="margin:0 0 6px">${esc(S.report.pseudo)} sera bloqué·e définitivement, et notre équipe sera prévenue.</p>
+    ${REASONS.map((r) => `<button class="reason" data-a="confirmReport" data-reason="${esc(r)}">${esc(r)}</button>`).join('')}
+    <button class="link muted" style="align-self:center" data-a="closeReport">Annuler</button>
+  </div>
+</div>`;
+
+// ---------- Rendu ------------------------------------------------------
+let lastView = null;
+function render() {
+  const fn = V[S.view] || V.welcome;
+  // Garde ce que la personne a déjà tapé quand l'écran se redessine (ex. après une erreur)
+  const keep = {};
+  if (lastView === S.view) {
+    $app.querySelectorAll('input[name], textarea[name]').forEach((el) => {
+      keep[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+  }
+  $app.innerHTML = fn();
+  lastView = S.view;
+  Object.keys(keep).forEach((name) => {
+    const el = $app.querySelector(`[name="${name}"]`);
+    if (!el || el.dataset.bind) return; // les champs liés à S.form ont déjà la bonne valeur
+    if (el.type === 'checkbox') el.checked = keep[name];
+    else if (!el.value) el.value = keep[name];
+  });
+  document.title = S.banner ? `(${S.banner}) Petit Bonbon` : 'Petit Bonbon';
+}
+
+function payLink() {
+  let u;
+  try { u = new URL(C.STRIPE_PAYMENT_LINK); } catch (_) { return '#'; }
+  if (S.user) {
+    u.searchParams.set('client_reference_id', S.user.id);
+    if (S.user.email) u.searchParams.set('prefilled_email', S.user.email);
+  }
+  return u.toString();
+}
+
+// ---------- Logique ----------------------------------------------------
+async function route() {
+  S.error = '';
+  if (!CONFIGURED) { S.view = 'setup'; return render(); }
+  if (!S.user) { if (!['auth', 'checkmail'].includes(S.view)) S.view = 'welcome'; return render(); }
+  try {
+    S.status = await rpc('my_status');
+  } catch (e) {
+    S.view = 'welcome'; S.error = errMsg(e); return render();
+  }
+  const st = S.status;
+  if (st.banned) S.view = 'banned';
+  else if (!st.adult) S.view = 'adult';
+  else if (st.paywall && !st.paid) S.view = 'paywall';
+  else if (!st.session || S.view === 'identity') S.view = 'identity';
+  else { S.view = 'main'; }
+  render();
+  if (S.view === 'main') loadData();
+}
+
+async function loadData() {
+  try {
+    const [people, inbox, sent] = await Promise.all([rpc('discover'), rpc('inbox'), rpc('sent')]);
+    S.people = people || []; S.peopleLoaded = true;
+    noteInbox(inbox || []);
+    S.sent = sent || [];
+    if (S.view === 'main') render();
+  } catch (e) { toast(errMsg(e)); }
+}
+
+function noteInbox(list) {
+  const ids = new Set(list.map((m) => m.id));
+  if (S.seenInbox) {
+    const fresh = list.filter((m) => !S.seenInbox.has(m.id) && m.status === 'open').length;
+    if (fresh && S.tab !== 'inbox') S.banner += fresh;
+  }
+  S.seenInbox = ids;
+  S.inbox = list;
+}
+
+async function poll() {
+  if (S.view !== 'main' || document.hidden) return;
+  try {
+    const [inbox, status] = await Promise.all([rpc('inbox'), rpc('my_status')]);
+    S.status = status;
+    if (!status.session) return route();
+    const before = S.banner;
+    noteInbox(inbox || []);
+    if (S.banner !== before || S.tab === 'inbox') render();
+  } catch (_) { /* silencieux : on réessaiera */ }
+}
+setInterval(poll, 20000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+
+const A = {
+  goWelcome() { S.view = 'welcome'; S.error = ''; render(); },
+  goAuth(d) { S.view = 'auth'; S.authMode = d.mode; S.error = ''; render(); },
+  async forgot() {
+    const email = (document.getElementById('email') || {}).value || '';
+    if (!email) { S.error = 'Indique ton e-mail ci-dessus, puis clique à nouveau sur « Mot de passe oublié ».'; return render(); }
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+    if (error) { S.error = errMsg(error); return render(); }
+    toast('Si un compte existe, un lien de réinitialisation vient d’être envoyé.');
+  },
+  async logout() { await sb.auth.signOut(); S.user = null; S.status = null; S.seenInbox = null; S.view = 'welcome'; render(); },
+  async checkPaid() {
+    S.busy = true;
+    for (let i = 0; i < 3; i++) {
+      await route();
+      if (S.view !== 'paywall') break;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    S.busy = false;
+    if (S.view === 'paywall') toast('Paiement pas encore reçu. Ça peut prendre une minute, réessaie.');
+  },
+  mood(d) {
+    const m = d.mood, list = S.form.moods;
+    if (list.includes(m)) S.form.moods = list.filter((x) => x !== m);
+    else if (list.length < 3) S.form.moods = list.concat(m);
+    else return toast('3 humeurs maximum.');
+    render();
+  },
+  tab(d) {
+    S.tab = d.tab; S.error = '';
+    if (S.view === 'identity') S.view = 'main';
+    if (d.tab === 'inbox') S.banner = 0;
+    render();
+    if (d.tab === 'discover' || d.tab === 'inbox') loadData();
+  },
+  refresh() { S.peopleLoaded = false; render(); loadData(); },
+  pickTarget(d) { S.target = S.people[+d.i]; S.pick = 0; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0); },
+  pick(d) { S.pick = +d.i; render(); },
+  async send() {
+    S.busy = true; S.error = ''; render();
+    try {
+      await rpc('send_bonbon', { p_session_id: S.target.session_id, p_compliment: S.pick });
+      S.lastSentText = COMPLIMENTS[S.pick];
+      S.status.sent_today += 1;
+      S.target.already_sent = true;
+      S.tab = 'sentok';
+    } catch (e) { S.error = errMsg(e); }
+    S.busy = false; render();
+  },
+  async thank(d) {
+    try {
+      await rpc('thank_bonbon', { p_id: d.id });
+      const m = S.inbox.find((x) => x.id === d.id); if (m) m.status = 'thanked';
+      render(); toast('Un « merci » est parti. Pas besoin d’en dire plus.');
+    } catch (e) { toast(errMsg(e)); }
+  },
+  reportBonbon(d) { const m = S.inbox.find((x) => x.id === d.id); S.report = { bonbonId: d.id, pseudo: m ? m.sender_pseudo : 'Cette personne' }; render(); },
+  reportSession(d) { const p = S.people[+d.i]; S.report = { sessionId: p.session_id, pseudo: p.pseudo }; render(); },
+  closeReport() { S.report = null; render(); },
+  async confirmReport(d) {
+    const r = S.report; S.report = null;
+    try {
+      await rpc('report', { p_reason: d.reason, p_bonbon_id: r.bonbonId || null, p_session_id: r.sessionId || null });
+      toast('Signalement envoyé. Cette personne ne pourra plus te voir ni t’écrire.');
+      await loadData();
+    } catch (e) { toast(errMsg(e)); }
+    render();
+  },
+  async toggle(d) {
+    const key = d.key, val = !S.status[key];
+    S.status[key] = val; render();
+    try {
+      await rpc('update_settings', { p_receive_on: key === 'receive_on' ? val : null, p_same_city_only: key === 'same_city_only' ? val : null });
+    } catch (e) { S.status[key] = !val; render(); toast(errMsg(e)); }
+  },
+  editIdentity() {
+    const s = S.status.session;
+    S.form = { pseudo: s.pseudo === 'Quelqu’un de passage' || s.pseudo === "Quelqu'un de passage" ? '' : s.pseudo, moods: (s.moods || []).slice(), bio: s.bio || '', city: s.current_city, home: s.home_city === s.current_city ? '' : s.home_city };
+    S.view = 'identity'; S.error = ''; render();
+  },
+  async leave() {
+    try { await rpc('end_session'); } catch (_) {}
+    S.form = { pseudo: '', moods: [], bio: '', city: S.form.city, home: '' };
+    S.status.session = null; S.people = []; S.peopleLoaded = false; S.tab = 'discover';
+    S.view = 'identity'; render();
+    toast('Identité effacée. À une prochaine fois, sous un autre nom.');
+  },
+  async deleteAccount() {
+    if (!confirm('Supprimer définitivement ton compte et toutes tes données ? Ton achat ne sera pas remboursé.')) return;
+    try { await rpc('delete_account'); } catch (e) { return toast(errMsg(e)); }
+    await sb.auth.signOut();
+    S.user = null; S.status = null; S.view = 'welcome'; render();
+    toast('Ton compte et tes données ont été supprimés.');
+  },
+  openBanner() { S.banner = 0; S.tab = 'inbox'; render(); loadData(); },
+  async share() {
+    const data = { title: 'Petit Bonbon', text: 'Des inconnus. Des compliments. Aucune pression.', url: location.origin + location.pathname };
+    try {
+      if (navigator.share) await navigator.share(data);
+      else { await navigator.clipboard.writeText(data.url); toast('Lien copié !'); }
+    } catch (_) {}
+  },
+};
+
+const F = {
+  async auth(form) {
+    const fd = new FormData(form);
+    const email = String(fd.get('email') || '').trim(), password = String(fd.get('password') || '');
+    if (!email || !password) { S.error = 'Indique ton e-mail et ton mot de passe.'; return render(); }
+    if (S.authMode === 'signup') {
+      if (!fd.get('adult')) { S.error = 'Petit Bonbon est réservé aux plus de 18 ans.'; return render(); }
+      if (!fd.get('terms')) { S.error = 'Merci d’accepter les conditions d’utilisation.'; return render(); }
+      if (password.length < 8) { S.error = 'Le mot de passe doit faire au moins 8 caractères.'; return render(); }
+    }
+    S.busy = true; S.error = ''; render();
+    try {
+      if (S.authMode === 'signup') {
+        const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } });
+        if (error) throw error;
+        if (!data.session) { S.busy = false; S.view = 'checkmail'; return render(); }
+        S.user = data.user;
+        await rpc('confirm_adult');
+      } else {
+        const { data, error } = await sb.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        S.user = data.user;
+      }
+      S.busy = false; S.view = 'loading'; await route();
+    } catch (e) { S.busy = false; S.error = errMsg(e); render(); }
+  },
+  async newpass(form) {
+    const pw = String(new FormData(form).get('password') || '');
+    if (pw.length < 8) { S.error = 'Le mot de passe doit faire au moins 8 caractères.'; return render(); }
+    S.busy = true; render();
+    const { error } = await sb.auth.updateUser({ password: pw });
+    S.busy = false;
+    if (error) { S.error = errMsg(error); return render(); }
+    toast('Mot de passe mis à jour.'); S.view = 'loading'; route();
+  },
+  async adult(form) {
+    const fd = new FormData(form);
+    if (!fd.get('adult') || !fd.get('terms')) { S.error = 'Merci de cocher les deux cases pour continuer.'; return render(); }
+    S.busy = true; render();
+    try { await rpc('confirm_adult'); S.busy = false; await route(); } catch (e) { S.busy = false; S.error = errMsg(e); render(); }
+  },
+  async identity() {
+    const f = S.form;
+    if (!f.city.trim()) { S.error = 'Indique la ville où tu te trouves.'; return render(); }
+    S.busy = true; S.error = ''; render();
+    try {
+      S.status = await rpc('start_session', { p_pseudo: f.pseudo, p_moods: f.moods, p_bio: f.bio, p_current_city: f.city, p_home_city: f.home });
+      try { localStorage.setItem('pb_city', f.city); } catch (_) {}
+      S.busy = false; S.view = 'main'; S.tab = 'discover'; S.peopleLoaded = false; S.seenInbox = null;
+      render(); loadData();
+    } catch (e) { S.busy = false; S.error = errMsg(e); render(); }
+  },
+};
+
+// ---------- Événements -------------------------------------------------
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-a]');
+  if (!el) return;
+  // un clic dans la feuille ne doit pas la fermer
+  if (el.classList.contains('sheet-back') && e.target.closest('[data-stop]')) return;
+  const fn = A[el.dataset.a];
+  if (fn) { e.preventDefault(); fn(el.dataset, el); }
+});
+document.addEventListener('submit', (e) => {
+  const form = e.target.closest('[data-f]');
+  if (!form) return;
+  e.preventDefault();
+  const fn = F[form.dataset.f];
+  if (fn) fn(form);
+});
+document.addEventListener('input', (e) => {
+  const k = e.target.dataset && e.target.dataset.bind;
+  if (k) S.form[k] = e.target.value;
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && S.report) { S.report = null; render(); }
+});
+
+// ---------- Démarrage --------------------------------------------------
+async function start() {
+  try { S.form.city = localStorage.getItem('pb_city') || ''; } catch (_) {}
+  if (!CONFIGURED) return route();
+  sb.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') { S.user = session && session.user; S.view = 'newpass'; render(); return; }
+    if (event === 'SIGNED_OUT') { S.user = null; }
+  });
+  const { data } = await sb.auth.getSession();
+  S.user = data.session ? data.session.user : null;
+  if (S.view === 'newpass') return;
+  await route();
+  if (new URLSearchParams(location.search).has('paid') && S.view === 'paywall') A.checkPaid();
+}
+start();
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}

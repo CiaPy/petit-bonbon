@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conditions d'utilisation · Petit Bonbon</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=DM+Sans:opsz,wght@9..40,400;9..40,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script>
+</head>
+<body>
+<article class="legal">
+<p><a href="./">← Retour à Petit Bonbon</a></p>
+<h1>Conditions générales d'utilisation et de vente</h1>
+<p class="small">Version du 14 octobre 2026 — projet à faire relire avant publication définitive.</p>
+
+<h2>1. Objet</h2>
+<p>Petit Bonbon (« l'Application ») permet à des personnes majeures d'envoyer et de recevoir des compliments choisis dans une liste, de la part d'autres utilisateurs présents dans la même ville. Les présentes conditions encadrent l'utilisation de l'Application et l'achat de l'accès. L'éditeur est identifié dans les <a href="mentions-legales.html">mentions légales</a>.</p>
+
+<h2>2. Accès réservé aux adultes</h2>
+<p>L'Application est strictement réservée aux personnes âgées de 18 ans ou plus. En créant un compte, l'utilisateur déclare avoir 18 ans ou plus. Tout compte dont il apparaît qu'il est utilisé par une personne mineure est supprimé.</p>
+
+<h2>3. Compte et identité du jour</h2>
+<p>Chaque utilisateur dispose d'un compte personnel, lié à une adresse e-mail qui n'est jamais montrée aux autres utilisateurs. À chaque utilisation, il choisit une « identité du jour » (pseudo, humeurs, courte phrase facultative, ville) qui expire automatiquement au bout de 12 heures ou lorsqu'il la supprime. Changer d'identité ne permet pas d'échapper à un blocage ou à une suspension, qui s'appliquent au compte.</p>
+
+<h2>4. Règles de conduite</h2>
+<p>L'utilisateur s'engage à rester bienveillant. Sont notamment interdits, dans le pseudo et la phrase de présentation : les propos injurieux, discriminatoires, sexuels ou harcelants ; les coordonnées personnelles (téléphone, adresse, réseaux sociaux) ; l'usurpation de l'identité d'un tiers ; toute utilisation commerciale ou publicitaire. Il est interdit de chercher à identifier ou retrouver physiquement un autre utilisateur contre son gré.</p>
+
+<h2>5. Signalement, blocage et suspension</h2>
+<p>Tout utilisateur peut signaler un profil ou un compliment reçu. Le signalement bloque immédiatement et définitivement la personne signalée vis-à-vis de l'utilisateur qui signale. Un compte signalé par plusieurs personnes différentes est automatiquement suspendu, puis examiné. L'éditeur peut suspendre ou supprimer un compte qui ne respecte pas ces conditions, sans remboursement de l'accès. Pour toute situation urgente : <a class="pb-contact" href="#"></a>.</p>
+
+<h2>6. Prix, paiement et droit de rétractation</h2>
+<p>L'accès à l'Application est vendu au prix de 0,99 € TTC, en paiement unique, sans abonnement. Le paiement est traité par Stripe ; l'éditeur n'a jamais accès aux données de carte bancaire. L'accès est activé dès la confirmation du paiement.</p>
+<p>Conformément à l'article L221-28 13° du Code de la consommation, l'utilisateur qui demande l'activation immédiate de l'accès reconnaît que l'exécution commence dès le paiement et renonce expressément à son droit de rétractation de 14 jours. En cas de dysfonctionnement empêchant l'accès, l'utilisateur peut contacter l'éditeur pour obtenir un remboursement.</p>
+<p>Des fonctionnalités payantes supplémentaires (abonnement Premium, événements) pourront être proposées ultérieurement ; leurs conditions seront présentées avant tout achat.</p>
+
+<h2>7. Disponibilité</h2>
+<p>L'Application est fournie en l'état, dans sa version de lancement. L'éditeur s'efforce d'en assurer la disponibilité mais ne garantit pas un fonctionnement sans interruption, ni la présence d'autres utilisateurs dans une ville donnée.</p>
+
+<h2>8. Responsabilité</h2>
+<p>Chaque utilisateur est responsable du pseudo et de la phrase qu'il publie. L'Application ne communique jamais la position exacte des utilisateurs ; les utilisateurs restent responsables des informations qu'ils choisissent de partager.</p>
+
+<h2>9. Données personnelles</h2>
+<p>Le traitement des données est décrit dans la <a href="confidentialite.html">politique de confidentialité</a>. L'utilisateur peut supprimer son compte et toutes ses données à tout moment depuis l'onglet « Moi ».</p>
+
+<h2>10. Droit applicable et litiges</h2>
+<p>Les présentes conditions sont soumises au droit français. En cas de litige, l'utilisateur consommateur peut recourir gratuitement à un médiateur de la consommation : [NOM ET COORDONNÉES DU MÉDIATEUR — À COMPLÉTER].</p>
+</article>
+<script>
+document.querySelectorAll('.pb-contact').forEach(function (a) {
+  var m = (window.PB_CONFIG || {}).CONTACT_EMAIL || '';
+  a.textContent = m; a.href = 'mailto:' + m;
+});
+</script>
+</body>
+</html>
