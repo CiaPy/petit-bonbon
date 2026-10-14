@@ -16,5 +16,5 @@ window.PB_CONFIG = {
   STRIPE_PAYMENT_LINK: "",
 
   // Adresse affichée pour le contact et les signalements urgents
-  CONTACT_EMAIL: "contact@exemple.fr",
+  CONTACT_EMAIL: "petitbonbon-app@proton.me",
 };
