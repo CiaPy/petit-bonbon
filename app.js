@@ -98,6 +98,9 @@ const ERRORS = {
   LIMIT_CHAT: 'Vous avez beaucoup échangé aujourd’hui. Reprenez demain !',
   PREMIUM: 'Cette option fait partie de Premium.',
   NO_CUSTOM: 'Cette personne préfère recevoir les compliments de la liste.',
+  BAD_CODE: 'Ce code ne correspond à aucun Premium. Vérifie-le et réessaie.',
+  TOO_MANY: 'Trop d’essais. Réessaie dans une heure.',
+  NOT_ACTIVE: 'L’abonnement lié à ce code n’est plus actif.',
   CANCEL_FIRST: 'Résilie d’abord ton abonnement Premium (Moi › Gérer mon abonnement). Tu pourras ensuite tout effacer.',
   WEEKLY: 'Tu as déjà offert plusieurs bonbons à cette personne cette semaine. Laisse-lui un peu d’air 🍬',
   BAD_TEXT: 'Ton surnom, tes quelques mots ou ta ville contient un contact (numéro, réseau social, lien) ou un mot interdit. Modifie-le pour continuer.',
@@ -164,7 +167,7 @@ const S = {
   report: null,            // { bonbonId?, sessionId?, pseudo }
   premium: false,          // feuille « Premium » ouverte
   convs: [], chat: null, thread: [],   // mini-conversations
-  custom: '', premiumMode: 'join', checkmailMsg: '',
+  custom: '', premiumMode: 'join', checkmailMsg: '', premiumCode: null,
   banner: 0, seenInbox: null,
 };
 
@@ -290,7 +293,6 @@ V.welcome = () => `<section class="screen welcome">
       <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>▶ Entrer</button>
     </form>
     <p class="small" style="text-align:center;margin:0">Sans compte, sans e-mail, sans mot de passe.</p>
-    ${C.PREMIUM_PAYMENT_LINK ? '<button class="link muted" style="align-self:center" data-a="goLogin">J’ai déjà un compte Premium</button>' : ''}
     ${legalLinks()}
   </div>
 </section>`;
@@ -327,18 +329,6 @@ V.checkmail = () => `<section class="screen center">
   <button class="btn ghost small" data-a="goWelcome">Retour</button>
 </section>`;
 
-V.login = () => `<section class="screen">
-  <button class="link muted" data-a="goWelcome" aria-label="Retour" style="align-self:flex-start;display:flex;align-items:center">${ICON.back}</button>
-  <div class="stack" style="gap:6px">
-    <h2>Retrouver mon Premium</h2>
-    <p class="sub">Indique l’adresse de ton compte Premium : on t’envoie un lien de connexion.</p>
-  </div>
-  <form class="stack" data-f="login" novalidate>
-    <div class="field"><label for="email">E-mail</label><input id="email" name="email" type="email" autocomplete="email" required></div>
-    ${errorBox()}
-    <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Recevoir le lien</button>
-  </form>
-</section>`;
 
 V.newpass = () => `<section class="screen">
   <h2>Nouveau mot de passe</h2>
@@ -611,10 +601,7 @@ function portalLink() {
 }
 function subscribeLink() {
   let u; try { u = new URL(C.PREMIUM_PAYMENT_LINK); } catch (_) { return '#'; }
-  if (S.user) {
-    u.searchParams.set('client_reference_id', S.user.id);
-    if (S.user.email) u.searchParams.set('prefilled_email', S.user.email);
-  }
+  if (S.user) u.searchParams.set('client_reference_id', S.user.id);
   return u.toString();
 }
 
@@ -623,7 +610,10 @@ V.premiumCard = () => {
   const end = st.sub_period_end ? (st.sub_cancel_at_end ? `Se termine le ${fmtDate(st.sub_period_end)}` : `Renouvellement le ${fmtDate(st.sub_period_end)}`) : 'Abonnement actif';
   return `<div class="premium">
     <span class="kicker">PREMIUM ACTIF</span>
-    <span class="small">${esc(end)}${S.user && S.user.email ? ' · ' + esc(S.user.email) : ''}</span>
+    <span class="small">${esc(end)}</span>
+    <span class="label">Ton code Premium</span>
+    <div class="code-box"><strong>${esc(S.premiumCode || '…')}</strong><button class="btn small ghost" data-a="copyCode">Copier</button></div>
+    <span class="small">Note-le précieusement : il te permet de retrouver Premium sur un autre téléphone, ou si tu vides ton navigateur.</span>
     <span class="label">Ton avatar</span>
     <div class="chips">
       <button type="button" class="chip" aria-pressed="${!s.avatar}" data-a="setAvatar" data-n="0">Initiale</button>
@@ -632,7 +622,8 @@ V.premiumCard = () => {
     <span class="label">Ton thème</span>
     <div class="chips">${THEMES.map((t) => `<button type="button" class="chip" aria-pressed="${document.documentElement.dataset.theme === t.id}" data-a="setTheme" data-theme="${t.id}"><span class="swatch" style="background:${t.color}"></span>${esc(t.name)}</button>`).join('')}</div>
     <p>${esc(PREMIUM_SOON)}</p>
-    ${C.PREMIUM_PORTAL_LINK ? `<a class="btn small ghost" style="align-self:flex-start" href="${esc(portalLink())}" target="_blank" rel="noopener">Gérer / résilier mon abonnement</a>` : ''}
+    ${C.PREMIUM_PORTAL_LINK ? `<a class="btn small ghost" style="align-self:flex-start" href="${esc(portalLink())}" target="_blank" rel="noopener">Gérer / résilier mon abonnement</a>
+    <span class="small">Stripe te demandera l’e-mail utilisé au paiement et t’enverra un lien.</span>` : ''}
   </div>`;
 };
 
@@ -646,36 +637,31 @@ V.premiumSheet = () => {
   if (!ready) {
     body = `<p class="note" style="margin:0">Premium arrive très bientôt. En attendant, toute l’app de base est gratuite.</p>
       <button class="btn" data-a="closePremium">D’accord</button>`;
+  } else if (S.premiumMode === 'code') {
+    body = `<p class="note" style="margin:0">Bienvenue dans Premium 🍬 Voici ton code. Note-le : il te permet de retrouver Premium sur un autre téléphone.</p>
+      <div class="code-box"><strong>${esc(S.premiumCode || '…')}</strong><button class="btn small ghost" data-a="copyCode">Copier</button></div>
+      <button class="btn" data-a="closePremium">C’est noté</button>`;
   } else if (isPremium()) {
     body = `<p class="note" style="margin:0">Tu es Premium. Merci 🍬 Tout se règle dans l’onglet « Moi ».</p>
       <button class="btn" data-a="closePremium">Super</button>`;
-  } else if (S.premiumMode === 'login') {
-    body = `<form class="stack" data-f="login" novalidate>
-        <div class="field"><label for="email">E-mail de ton compte Premium</label><input id="email" name="email" type="email" autocomplete="email" required></div>
+  } else if (S.premiumMode === 'restore') {
+    body = `<form class="stack" data-f="restore" novalidate>
+        <div class="field"><label for="code">Ton code Premium</label><input id="code" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="BONBON-XXXX-XXXX-XXXX"></div>
         ${errorBox()}
-        <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Recevoir le lien de connexion</button>
+        <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Retrouver mon Premium</button>
       </form>
-      <button class="link muted" data-a="premiumMode" data-mode="join">Je n’ai pas encore de compte</button>`;
-  } else if (isAnon() && S.user && S.user.new_email) {
-    body = `<p class="note" style="margin:0">On t’a envoyé un lien à <strong>${esc(S.user.new_email)}</strong>. Clique dessus, puis reviens ici pour t’abonner.</p>
-      <button class="btn ghost small" data-a="premiumMode" data-mode="join" data-reset="1">Changer d’adresse</button>`;
-  } else if (isAnon()) {
-    body = `<p class="small" style="margin:0"><strong>Étape 1 sur 2.</strong> Pour t’abonner, il te faut un compte : ton e-mail reste privé, et tu gardes ton identité du jour et tes bonbons.</p>
-      <form class="stack" data-f="premiumEmail" novalidate>
-        <div class="field"><label for="email">Ton e-mail</label><input id="email" name="email" type="email" autocomplete="email" required></div>
-        ${errorBox()}
-        <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Recevoir le lien</button>
-      </form>
-      <button class="link muted" data-a="premiumMode" data-mode="login">J’ai déjà un compte Premium</button>`;
+      <p class="small" style="margin:0">Code perdu ? Écris à ${esc(C.CONTACT_EMAIL || '')} avec ton reçu de paiement Stripe.</p>
+      <button class="link muted" data-a="premiumMode" data-mode="join">Retour</button>`;
   } else {
-    body = `<p class="small" style="margin:0"><strong>Étape 2 sur 2.</strong> Compte : ${esc(S.user.email || '')}</p>
+    body = `<p class="small" style="margin:0">Pas de compte à créer : Premium est lié à ce téléphone, et tu recevras un <strong>code</strong> pour le retrouver ailleurs.</p>
       <form class="stack" data-f="subscribe" novalidate>
         <label class="check"><input type="checkbox" name="terms"><span>J’accepte les <a href="cgu.html#premium" target="_blank">conditions de l’abonnement</a> : ${PREMIUM_PRICE}, sans engagement, résiliable à tout moment en ligne.</span></label>
         <label class="check"><input type="checkbox" name="waive"><span>Je veux accéder à Premium tout de suite et je renonce à mon droit de rétractation de 14 jours.</span></label>
         ${errorBox()}
         <button class="btn" type="submit">S’abonner · ${PREMIUM_PRICE}</button>
       </form>
-      <p class="small" style="margin:0">Paiement sécurisé par Stripe (carte, Apple Pay, Google Pay, PayPal). Petit Bonbon ne voit jamais ta carte.</p>`;
+      <p class="small" style="margin:0">Paiement sécurisé par Stripe (carte, Apple Pay, Google Pay, PayPal). Petit Bonbon ne voit jamais ta carte. Ton reçu t’est envoyé par Stripe.</p>
+      <button class="link muted" data-a="premiumMode" data-mode="restore">J’ai déjà Premium sur un autre appareil</button>`;
   }
   return `<div class="sheet-back" data-a="closePremium">
   <div class="sheet" role="dialog" aria-modal="true" aria-label="Premium" data-stop="1">${head}${body}</div>
@@ -747,6 +733,11 @@ async function route() {
   if (S.view === 'main') loadData();
 }
 
+async function loadPremiumCode() {
+  if (!isPremium()) { S.premiumCode = null; return; }
+  try { S.premiumCode = await rpc('my_premium_code'); } catch (_) {}
+}
+
 async function loadData() {
   try {
     const [people, inbox, sent, convs] = await Promise.all([rpc('discover'), rpc('inbox'), rpc('sent'), rpc('conversations')]);
@@ -754,6 +745,7 @@ async function loadData() {
     noteInbox(inbox || []);
     S.sent = sent || [];
     noteConvs(convs || []);
+    if (isPremium() && !S.premiumCode) await loadPremiumCode();
     if (S.view === 'main') render();
   } catch (e) { toast(errMsg(e)); }
 }
@@ -913,7 +905,9 @@ const A = {
   openPremium() { S.premium = true; S.error = ''; S.premiumMode = 'join'; render(); },
   closePremium() { S.premium = false; S.error = ''; render(); },
   premiumMode(d) { S.premiumMode = d.mode; S.error = ''; if (d.reset && S.user) S.user = { ...S.user, new_email: null }; render(); },
-  goLogin() { S.view = 'login'; S.error = ''; render(); },
+  async copyCode() {
+    try { await navigator.clipboard.writeText(S.premiumCode || ''); toast('Code copié.'); } catch (_) { toast('Sélectionne le code pour le copier.'); }
+  },
   async setAvatar(d) {
     try { S.status = await rpc('set_avatar', { p_avatar: +d.n }); render(); } catch (e) { toast(errMsg(e)); }
   },
@@ -921,7 +915,7 @@ const A = {
   async checkPremium() {
     for (let i = 0; i < 8; i++) {
       try { S.status = await rpc('my_status'); } catch (_) {}
-      if (isPremium()) { applyTheme(); render(); toast('Bienvenue dans Premium 🍬'); return; }
+      if (isPremium()) { applyTheme(); await loadPremiumCode(); S.premium = true; S.premiumMode = 'code'; render(); return; }
       await new Promise((r) => setTimeout(r, 2500));
     }
     toast('Paiement reçu ? Premium s’activera dans un instant. Recharge la page dans une minute.');
@@ -973,26 +967,16 @@ const A = {
 };
 
 const F = {
-  async premiumEmail(form) {
-    const email = String(new FormData(form).get('email') || '').trim();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { S.error = 'Indique une adresse e-mail valide.'; return render(); }
+  async restore(form) {
+    const code = String(new FormData(form).get('code') || '').trim();
+    if (code.replace(/[^A-Za-z0-9]/g, '').length < 12) { S.error = 'Recopie ton code en entier (BONBON-XXXX-XXXX-XXXX).'; return render(); }
     S.busy = true; S.error = ''; render();
-    const { data, error } = await sb.auth.updateUser({ email }, { emailRedirectTo: location.origin + location.pathname + '?premium=email' });
-    S.busy = false;
-    if (error) { S.error = errMsg(error); return render(); }
-    S.user = data.user || { ...S.user, new_email: email };
-    if (!S.user.new_email && S.user.is_anonymous) S.user.new_email = email;
-    render();
-  },
-  async login(form) {
-    const email = String(new FormData(form).get('email') || '').trim();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { S.error = 'Indique une adresse e-mail valide.'; return render(); }
-    S.busy = true; S.error = ''; render();
-    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: location.origin + location.pathname } });
-    S.busy = false;
-    if (error) { S.error = errMsg(error); return render(); }
-    S.premium = false; S.checkmailMsg = `On a envoyé un lien de connexion à ${email}. Ouvre-le sur cet appareil.`;
-    S.view = 'checkmail'; render();
+    try {
+      S.status = await rpc('restore_premium', { p_code: code });
+      await loadPremiumCode(); applyTheme();
+      S.premium = false; toast('Premium est de retour sur ce téléphone 🍬');
+    } catch (e) { S.error = errMsg(e); }
+    S.busy = false; render();
   },
   subscribe(form) {
     const fd = new FormData(form);
@@ -1135,7 +1119,6 @@ async function start() {
   await route();
   const qs = new URLSearchParams(location.search);
   if (qs.has('paid') && S.view === 'paywall') A.checkPaid();
-  if (qs.get('premium') === 'email' && S.view === 'main') { S.premium = true; render(); }
   if (qs.get('premium') === '1') A.checkPremium();
   if (qs.has('premium') || qs.has('paid')) history.replaceState(null, '', location.pathname);
 }

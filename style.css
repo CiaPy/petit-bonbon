@@ -169,6 +169,9 @@ html[data-theme="menthe"] { --bg: #F1FBF6; --bg-dot: #D3EFE2; --lilac: #C6F1DF; 
 html[data-theme="peche"]  { --bg: #FFF6EE; --bg-dot: #F7DFCB; --lilac: #FFE3CC; --lilac-shade: #F5C9A5; }
 html[data-theme="citron"] { --bg: #FFFCEB; --bg-dot: #F3EAB8; --lilac: #FFF1A8; --lilac-shade: #F2DC77; }
 
+.code-box { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin: var(--px); background: #fff; box-shadow: 0 -4px 0 #fff, 0 4px 0 #fff, -4px 0 0 #fff, 4px 0 0 #fff, 0 8px 0 var(--lemon-shade); }
+.code-box strong { font-family: var(--display); font-size: 11px; line-height: 1.6; letter-spacing: 1px; user-select: all; -webkit-user-select: all; word-break: break-all; }
+
 /* ---------- Mini-conversation ---------- */
 .card.conv { width: auto; text-align: left; cursor: pointer; gap: 6px; font: inherit; color: inherit; }
 .dot-new { width: 12px; height: 12px; background: var(--pink); box-shadow: 0 3px 0 var(--pink-shade); }

@@ -87,6 +87,11 @@ alter table public.profiles add column if not exists sub_status           text; 
 alter table public.profiles add column if not exists sub_period_end       timestamptz;
 alter table public.profiles add column if not exists sub_cancel_at_end    boolean not null default false;
 alter table public.profiles add column if not exists accept_custom        boolean not null default true;  -- recevoir des mots personnalisés
+-- Code Premium : permet de retrouver son abonnement sur un autre appareil, sans compte ni e-mail
+alter table public.profiles add column if not exists recovery_code        text;
+alter table public.profiles add column if not exists restore_fails        int not null default 0;
+alter table public.profiles add column if not exists restore_fail_at      timestamptz;
+create unique index if not exists profiles_recovery_code_idx on public.profiles (recovery_code) where recovery_code is not null;
 create index if not exists profiles_stripe_customer_idx on public.profiles (stripe_customer_id);
 
 alter table public.sessions add column if not exists avatar int not null default 0;  -- 0 = initiale ; 1 à 6 = avatars pixel Premium
@@ -607,6 +612,65 @@ begin
   where id = auth.uid();
 end $$;
 
+-- Code Premium au format BONBON-XXXX-XXXX-XXXX (60 bits d'aléa, sans caractères ambigus)
+create or replace function public.new_recovery_code()
+returns text language plpgsql volatile as $$
+declare alphabet text := '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; b bytea := uuid_send(gen_random_uuid()) || uuid_send(gen_random_uuid());
+  c text := ''; i int;
+begin
+  for i in 0..11 loop
+    c := c || substr(alphabet, (get_byte(b, i) % length(alphabet)) + 1, 1);
+    if i in (3, 7) then c := c || '-'; end if;
+  end loop;
+  return 'BONBON-' || c;
+end $$;
+
+-- Mon code Premium (créé au premier appel, seulement si Premium est actif)
+create or replace function public.my_premium_code()
+returns text language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); code text; tries int := 0;
+begin
+  if uid is null or not public.is_premium(uid) then return null; end if;
+  select recovery_code into code from public.profiles where id = uid;
+  while code is null and tries < 5 loop
+    begin
+      update public.profiles set recovery_code = public.new_recovery_code() where id = uid returning recovery_code into code;
+    exception when unique_violation then tries := tries + 1;
+    end;
+  end loop;
+  return code;
+end $$;
+
+-- Récupérer Premium sur cet appareil grâce au code (5 essais ratés max par heure)
+create or replace function public.restore_premium(p_code text)
+returns json language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); me public.profiles%rowtype; src public.profiles%rowtype; c text;
+begin
+  if uid is null then raise exception 'AUTH'; end if;
+  select * into me from public.profiles where id = uid;
+  if me.restore_fails >= 5 and me.restore_fail_at > now() - interval '1 hour' then raise exception 'TOO_MANY'; end if;
+  c := upper(regexp_replace(coalesce(p_code, ''), '[^A-Za-z0-9]', '', 'g'));
+  if c like 'BONBON%' then c := substr(c, 7); end if;
+  if length(c) = 12 then c := 'BONBON-' || substr(c, 1, 4) || '-' || substr(c, 5, 4) || '-' || substr(c, 9, 4); end if;
+  select * into src from public.profiles where recovery_code = c and id <> uid;
+  if not found then
+    update public.profiles
+    set restore_fails = case when restore_fail_at > now() - interval '1 hour' then restore_fails + 1 else 1 end,
+        restore_fail_at = now()
+    where id = uid;
+    raise exception 'BAD_CODE';
+  end if;
+  if not coalesce(src.sub_status in ('active', 'trialing', 'past_due'), false) then raise exception 'NOT_ACTIVE'; end if;
+  -- On déplace l'abonnement de l'ancien appareil vers celui-ci
+  update public.profiles set stripe_customer_id = null, sub_id = null, sub_status = null, sub_period_end = null,
+         sub_cancel_at_end = false, recovery_code = null where id = src.id;
+  update public.profiles set stripe_customer_id = src.stripe_customer_id, sub_id = src.sub_id, sub_status = src.sub_status,
+         sub_period_end = src.sub_period_end, sub_cancel_at_end = src.sub_cancel_at_end, recovery_code = src.recovery_code,
+         restore_fails = 0
+  where id = uid;
+  return public.my_status();
+end $$;
+
 -- Avatar pixel de l'identité du jour (Premium)
 create or replace function public.set_avatar(p_avatar int)
 returns json language plpgsql security definer set search_path = public as $$
@@ -640,10 +704,10 @@ grant execute on function
   public.discover(), public.send_bonbon(uuid, int, text),
   public.inbox(), public.sent(), public.thank_bonbon(uuid),
   public.report(text, uuid, uuid), public.block_only(uuid, uuid), public.update_bio(text), public.update_settings(boolean, boolean, boolean),
-  public.set_avatar(int), public.reply_bonbon(uuid, int, text), public.conversations(), public.thread(uuid), public.send_phrase(uuid, int),
+  public.set_avatar(int), public.my_premium_code(), public.restore_premium(text), public.reply_bonbon(uuid, int, text), public.conversations(), public.thread(uuid), public.send_phrase(uuid, int),
   public.delete_account()
 to authenticated;
 revoke execute on function public.text_problem(text, boolean), public.city_ready(text), public.chat_open(uuid, uuid),
-  public.is_premium(uuid), public.check_custom(uuid, text, uuid) from authenticated;
+  public.is_premium(uuid), public.check_custom(uuid, text, uuid), public.new_recovery_code() from authenticated;
 revoke execute on function public.handle_new_user(), public.access_problem(uuid),
   public.blocked_between(uuid, uuid) from authenticated;
