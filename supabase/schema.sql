@@ -215,7 +215,7 @@ create or replace function public.start_session(
 returns json language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); problem text;
   allowed text[] := array['Joyeux·se','Rêveur·se','Curieux·se','Calme','De passage','Fatigué·e mais là',
-                          'Bavard·e','Timide','En balade'];
+                          'Bavard·e','Timide','En balade','Triste','Pas dans mon assiette'];
 begin
   problem := public.access_problem(uid);
   if problem is not null then raise exception '%', problem; end if;

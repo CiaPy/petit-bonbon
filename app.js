@@ -25,7 +25,7 @@ const COMPLIMENTS = [
   'Tu rends cette ville plus douce.',
 ];
 // Doit correspondre à la liste « allowed » de start_session dans schema.sql
-const MOODS = ['Joyeux·se', 'Rêveur·se', 'Curieux·se', 'Calme', 'De passage', 'Timide'];
+const MOODS = ['Joyeux·se', 'Rêveur·se', 'Curieux·se', 'Calme', 'Timide', 'Triste', 'Pas dans mon assiette'];
 const CITIES = ['Paris', 'Marseille', 'Lyon', 'Toulouse', 'Nice', 'Nantes', 'Montpellier', 'Strasbourg', 'Bordeaux', 'Lille', 'Rennes', 'Reims', 'Toulon', 'Saint-Étienne', 'Le Havre', 'Grenoble', 'Dijon', 'Angers', 'Nîmes', 'Clermont-Ferrand', 'Orléans', 'Tours', 'Brest', 'Limoges', 'Amiens', 'Metz', 'Perpignan', 'Besançon', 'Caen', 'Rouen', 'Nancy', 'Avignon', 'La Rochelle', 'Poitiers', 'Pau', 'Bayonne', 'Annecy', 'Bruxelles', 'Genève', 'Lausanne', 'Montréal'];
 const REASONS = ['Message ou profil déplacé', 'Contenu sexuel', 'Je pense que c’est un·e mineur·e', 'Insistance ou harcèlement', 'Autre chose me met mal à l’aise'];
 // Options réservées à l'abonnement Premium (pas encore disponibles)
