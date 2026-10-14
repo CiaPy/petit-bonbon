@@ -37,7 +37,7 @@ const PREMIUM_FEATURES = [
   { short: 'Musique', long: 'Partager une musique' },
   { short: 'Lien', long: 'Partager un lien' },
 ];
-const EVENTS_MSG = 'Quand nous serons plus nombreux, nous organiserons une fois par mois des rencontres live entre bonbons :)';
+const EVENTS_MSG = 'Quand nous serons plus nombreux, nous organiserons une fois par mois des rencontres live entre bonbons, petits pains et autres gourmandises :)';
 const AVATAR_COLORS = ['#F9D9E3', '#D5EEE8', '#FBE6CC', '#E3DDF5'];
 const ERRORS = {
   PAYWALL: 'L’accès à Petit Bonbon n’est pas encore activé sur ce compte.',
