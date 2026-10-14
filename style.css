@@ -210,6 +210,10 @@ h3 { font-size: 13px; line-height: 1.6; }
 .legal h1 { font-size: 20px; line-height: 1.45; margin-bottom: 12px; text-shadow: none; }
 .legal h2 { font-size: 12px; margin-top: 32px; }
 
+/* ---------- Discrétion ---------- */
+.card, .quote, .bio, .banner { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.veiled #app, body.veiled .banner, body.veiled .sheet-back { filter: blur(18px); }
+
 @media (prefers-reduced-motion: reduce) {
   .cursor, .banner { animation: none; }
 }

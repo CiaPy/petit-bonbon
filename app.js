@@ -732,6 +732,19 @@ document.addEventListener('input', (e) => {
   const k = e.target.dataset && e.target.dataset.bind;
   if (k) S.form[k] = e.target.value;
 });
+// ---------- Discrétion ----------------------------------------------
+// Une page web ne peut pas bloquer les captures d'écran. On limite seulement
+// ce qui peut l'être : contenu flouté quand l'app passe en arrière-plan
+// (aperçu du sélecteur d'apps), pas de copie ni de menu sur les cartes.
+const veil = (on) => document.body.classList.toggle('veiled', on);
+document.addEventListener('visibilitychange', () => veil(document.hidden));
+window.addEventListener('blur', () => veil(true));
+window.addEventListener('focus', () => veil(false));
+window.addEventListener('pagehide', () => veil(true));
+window.addEventListener('pageshow', () => veil(false));
+document.addEventListener('contextmenu', (e) => { if (e.target.closest('.card, .quote, .bio')) e.preventDefault(); });
+document.addEventListener('copy', (e) => { if (window.getSelection && e.target.closest && e.target.closest('.card')) e.preventDefault(); });
+
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && (S.report || S.premium)) { S.report = null; S.premium = false; render(); }
 });
