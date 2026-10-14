@@ -2,7 +2,7 @@
 
 **Des inconnus. Des compliments. Aucune pression.**
 
-Application web installable (PWA) : on choisit une identité du jour, on découvre les personnes présentes dans la même ville, et on leur envoie un compliment choisi dans une liste. Accès à 0,99 € en paiement unique.
+Application web installable (PWA) : on choisit une identité du jour, on découvre les personnes présentes dans la même ville, et on leur envoie un compliment choisi dans une liste. **L'app de base est gratuite** ; les options (messages perso, vocaux, photos, musique, liens) seront réservées à un abonnement Premium, pas encore développé.
 
 Coût fixe : **0 €** — GitHub Pages (hébergement), Supabase offre gratuite (comptes et base de données), Stripe (commission uniquement à chaque vente).
 
@@ -26,6 +26,8 @@ L'app sera en ligne à l'adresse **https://ciapy.github.io/petit-bonbon/** (1 à
    ⚠️ Ne mets **jamais** la clé `service_role` dans `config.js` : ce fichier est public.
 
 ### 3. Créer le paiement Stripe (10 min)
+> **À faire plus tard.** L'app de base est gratuite (`paywall_enabled = false`). Les étapes 3 et 4 ne servent que si tu veux un jour rendre l'entrée payante ; l'abonnement Premium demandera un autre branchement Stripe (abonnement mensuel).
+
 1. Crée ton compte sur [stripe.com](https://stripe.com) et complète la vérification d'identité.
 2. **Catalogue de produits** › **Ajouter un produit** : « Accès Petit Bonbon », **0,99 €**, paiement **unique**.
 3. **Liens de paiement** › **Nouveau** › ce produit. Dans les options :

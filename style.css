@@ -70,6 +70,7 @@ h3 { font-weight: 700; font-size: 22px; line-height: 1.15; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { min-height: 44px; padding: 0 16px; border-radius: 22px; border: 1.5px solid var(--field); background: #fff; font-size: 15px; font-weight: 500; cursor: pointer; }
+.chip.locked { display: inline-flex; align-items: center; gap: 6px; border-style: dashed; border-color: #C9A8B2; background: transparent; color: var(--muted); }
 .chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); font-weight: 700; }
 
 .note { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border-radius: 14px; background: #F3E2DE; font-size: 14px; line-height: 1.4; }

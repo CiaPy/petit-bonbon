@@ -28,6 +28,15 @@ const COMPLIMENTS = [
 const MOODS = ['Joyeux·se', 'Rêveur·se', 'Curieux·se', 'Calme', 'De passage', 'Fatigué·e mais là', 'Bavard·e', 'Timide', 'En balade'];
 const CITIES = ['Paris', 'Marseille', 'Lyon', 'Toulouse', 'Nice', 'Nantes', 'Montpellier', 'Strasbourg', 'Bordeaux', 'Lille', 'Rennes', 'Reims', 'Toulon', 'Saint-Étienne', 'Le Havre', 'Grenoble', 'Dijon', 'Angers', 'Nîmes', 'Clermont-Ferrand', 'Orléans', 'Tours', 'Brest', 'Limoges', 'Amiens', 'Metz', 'Perpignan', 'Besançon', 'Caen', 'Rouen', 'Nancy', 'Avignon', 'La Rochelle', 'Poitiers', 'Pau', 'Bayonne', 'Annecy', 'Bruxelles', 'Genève', 'Lausanne', 'Montréal'];
 const REASONS = ['Message ou profil déplacé', 'Contenu sexuel', 'Je pense que c’est un·e mineur·e', 'Insistance ou harcèlement', 'Autre chose me met mal à l’aise'];
+// Options réservées à l'abonnement Premium (pas encore disponibles)
+const PREMIUM_PRICE = '2,99 € / mois';
+const PREMIUM_FEATURES = [
+  { short: 'Mon propre mot', long: 'Écrire ton propre message' },
+  { short: 'Note vocale', long: 'Envoyer une note vocale' },
+  { short: 'Photo', long: 'Partager une photo' },
+  { short: 'Musique', long: 'Partager une musique' },
+  { short: 'Lien', long: 'Partager un lien' },
+];
 const AVATAR_COLORS = ['#F9D9E3', '#D5EEE8', '#FBE6CC', '#E3DDF5'];
 const ERRORS = {
   PAYWALL: 'L’accès à Petit Bonbon n’est pas encore activé sur ce compte.',
@@ -51,6 +60,7 @@ const S = {
   people: [], peopleLoaded: false, inbox: [], sent: [],
   target: null, pick: 0, lastSentText: '',
   report: null,            // { bonbonId?, sessionId?, pseudo }
+  premium: false,          // feuille « Premium » ouverte
   banner: 0, seenInbox: null,
 };
 
@@ -98,6 +108,7 @@ const ICON = {
   search: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>',
   inbox: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 13l3-8h10l3 8v6H4z"/><path d="M4 13h5a3 3 0 0 0 6 0h5"/></svg>',
   me: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  lockSmall: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
   refresh: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
   lock: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
 };
@@ -271,7 +282,8 @@ V.main = () => {
     <button data-a="tab" data-tab="me" ${navOn('me')}>${ICON.me}Moi</button>
   </nav>`}
   ${S.banner ? `<button class="banner" data-a="openBanner">${candy('#F38BAF', 36)}<span><strong>Un petit bonbon pour toi</strong><span>${S.banner > 1 ? `${S.banner} inconnus t’ont envoyé un compliment.` : 'Un inconnu t’a envoyé un compliment.'}</span></span></button>` : ''}
-  ${S.report ? V.reportSheet() : ''}`;
+  ${S.report ? V.reportSheet() : ''}
+  ${S.premium ? V.premiumSheet() : ''}`;
 };
 
 V.tab_discover = () => {
@@ -319,7 +331,10 @@ V.tab_send = () => {
     <div role="radiogroup" aria-label="Choisis un compliment" class="stack" style="gap:10px">
       ${COMPLIMENTS.map((c, i) => `<button type="button" role="radio" class="compliment" aria-checked="${S.pick === i}" data-a="pick" data-i="${i}"><span class="dot"></span><span>${esc(c)}</span></button>`).join('')}
     </div>
-    <div class="note">${ICON.lock}<span>Les messages personnalisés arriveront avec Premium. Pour l’instant, on garde ça doux et simple.</span></div>
+    <div class="stack" style="gap:10px">
+      <span class="label" style="padding:0 4px">Avec Premium</span>
+      <div class="chips">${PREMIUM_FEATURES.map((f) => `<button type="button" class="chip locked" data-a="openPremium">${ICON.lockSmall}${esc(f.short)}</button>`).join('')}</div>
+    </div>
     ${errorBox()}
     <button class="btn" data-a="send" ${S.busy ? 'disabled' : ''}>Envoyer le bonbon</button>
   </div>`;
@@ -369,9 +384,10 @@ V.tab_me = () => {
       ${tg('same_city_only', 'Seulement des gens de ma ville', 'Les personnes de passage ne te verront pas.')}
     </div>
     <div class="premium">
-      <span class="kicker">BIENTÔT · PREMIUM</span>
+      <span class="kicker">PREMIUM · ${PREMIUM_PRICE}</span>
       <h3 style="color:#fff">Tes propres mots, ta voix, ta musique du jour</h3>
-      <p>Messages personnalisés, notes vocales, GIF et musique sur ton identité, tarifs réduits sur les événements. Un compte ne sera demandé qu’à ce moment-là.</p>
+      <p>Messages personnalisés, notes vocales, photos, musique et liens. L’app de base reste gratuite.</p>
+      <button class="btn small" style="background:#fff;color:var(--ink);align-self:flex-start" data-a="openPremium">Découvrir</button>
     </div>
     <button class="btn ghost" data-a="leave">Partir sans laisser de trace</button>
     <div class="stack" style="gap:0">
@@ -382,6 +398,16 @@ V.tab_me = () => {
     ${legalLinks()}
   </div>`;
 };
+
+V.premiumSheet = () => `<div class="sheet-back" data-a="closePremium">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Premium" data-stop="1">
+    <span class="small" style="font-weight:700;letter-spacing:1px;color:var(--accent)">PREMIUM · ${PREMIUM_PRICE.toUpperCase()}</span>
+    <h3 style="font-size:26px">Offre plus qu’un bonbon</h3>
+    <div class="bullets" style="margin:6px 0">${PREMIUM_FEATURES.map((f) => `<div>${esc(f.long)}</div>`).join('')}</div>
+    <p class="note" style="margin:0">Premium arrive très bientôt. En attendant, toute l’app de base est gratuite.</p>
+    <button class="btn" data-a="closePremium">D’accord</button>
+  </div>
+</div>`;
 
 V.reportSheet = () => `<div class="sheet-back" data-a="closeReport">
   <div class="sheet" role="dialog" aria-modal="true" aria-label="Signaler" data-stop="1">
@@ -537,6 +563,8 @@ const A = {
   reportBonbon(d) { const m = S.inbox.find((x) => x.id === d.id); S.report = { bonbonId: d.id, pseudo: m ? m.sender_pseudo : 'Cette personne' }; render(); },
   reportSession(d) { const p = S.people[+d.i]; S.report = { sessionId: p.session_id, pseudo: p.pseudo }; render(); },
   closeReport() { S.report = null; render(); },
+  openPremium() { S.premium = true; render(); },
+  closePremium() { S.premium = false; render(); },
   async confirmReport(d) {
     const r = S.report; S.report = null;
     try {
@@ -671,7 +699,7 @@ document.addEventListener('input', (e) => {
   if (k) S.form[k] = e.target.value;
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && S.report) { S.report = null; render(); }
+  if (e.key === 'Escape' && (S.report || S.premium)) { S.report = null; S.premium = false; render(); }
 });
 
 // ---------- Démarrage --------------------------------------------------

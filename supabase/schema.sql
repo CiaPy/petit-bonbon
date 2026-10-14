@@ -12,7 +12,7 @@
 -- ---------- Réglages globaux --------------------------------------------
 create table if not exists public.app_settings (
   id               int primary key default 1 check (id = 1),
-  paywall_enabled  boolean not null default true,   -- false = accès gratuit (soirée de lancement…)
+  paywall_enabled  boolean not null default false,  -- true = accès payant pour entrer (désactivé : l'app de base est gratuite)
   daily_send_limit int     not null default 10       -- bonbons envoyés max par 24 h
 );
 insert into public.app_settings (id) values (1) on conflict do nothing;
