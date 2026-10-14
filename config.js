@@ -6,7 +6,7 @@
 // =====================================================================
 window.PB_CONFIG = {
   // Supabase › Project Settings › API › Project URL
-  SUPABASE_URL: "COLLE_ICI_L_URL_SUPABASE",
+  SUPABASE_URL: "https://uyantfocqwhrqzqlqgah.supabase.co",
 
   // Supabase › Project Settings › API › anon public key
   SUPABASE_ANON_KEY: "COLLE_ICI_LA_CLE_ANON",
