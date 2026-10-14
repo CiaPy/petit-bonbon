@@ -57,7 +57,7 @@ const ERRORS = {
 // Les fichiers sont dans le dossier sons/. S'il en manque un, l'app reste
 // simplement silencieuse pour ce son-là.
 const SOUND_FILES = { open: 'sons/ouverture.mp3', click: 'sons/clic.mp3', bonbon: 'sons/bonbon-recu.mp3' };
-const SOUND_VOLUME = { open: 0.6, click: 0.35, bonbon: 0.7 };
+const SOUND_VOLUME = { open: 0.7, click: 0.4, bonbon: 0.8 };
 const SOUND = {
   on: true, clicks: true, opened: false, cache: {},
   load() {
