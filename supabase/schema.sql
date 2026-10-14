@@ -80,6 +80,26 @@ create table if not exists public.reports (
   created_at   timestamptz not null default now()
 );
 
+-- ---------- Premium (abonnement Stripe Billing) ------------------------
+alter table public.profiles add column if not exists stripe_customer_id   text;
+alter table public.profiles add column if not exists sub_id               text;
+alter table public.profiles add column if not exists sub_status           text;          -- active, trialing, past_due, canceled…
+alter table public.profiles add column if not exists sub_period_end       timestamptz;
+alter table public.profiles add column if not exists sub_cancel_at_end    boolean not null default false;
+alter table public.profiles add column if not exists accept_custom        boolean not null default true;  -- recevoir des mots personnalisés
+create index if not exists profiles_stripe_customer_idx on public.profiles (stripe_customer_id);
+
+alter table public.sessions add column if not exists avatar int not null default 0;  -- 0 = initiale ; 1 à 6 = avatars pixel Premium
+
+-- Mots personnalisés (Premium) : un bonbon porte soit un compliment de la liste, soit un texte filtré
+alter table public.bonbons add column if not exists custom_text text check (custom_text is null or char_length(custom_text) <= 140);
+alter table public.bonbons alter column compliment_id drop not null;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'bonbons_content_chk') then
+    alter table public.bonbons add constraint bonbons_content_chk check (compliment_id is not null or custom_text is not null);
+  end if;
+end $$;
+
 -- ---------- Réponses et mini-conversations -----------------------------
 -- Un bonbon peut être « renvoyé » en réponse à un autre (une fois par bonbon reçu)
 alter table public.bonbons add column if not exists reply_to uuid references public.bonbons(id) on delete set null;
@@ -187,6 +207,23 @@ returns boolean language sql stable security definer set search_path = public as
     and public.norm_city(s.current_city) = public.norm_city(p_city)
 $$;
 
+create or replace function public.is_premium(uid uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce((select sub_status in ('active', 'trialing') from public.profiles where id = uid), false)
+$$;
+
+-- Vérifie un mot personnalisé. Renvoie le texte nettoyé, ou lève une erreur.
+create or replace function public.check_custom(uid uuid, p_custom text, recipient uuid)
+returns text language plpgsql stable security definer set search_path = public as $$
+declare t text := nullif(trim(coalesce(p_custom, '')), '');
+begin
+  if t is null then return null; end if;
+  if not public.is_premium(uid) then raise exception 'PREMIUM'; end if;
+  if char_length(t) > 140 or public.text_problem(t) then raise exception 'BAD_TEXT'; end if;
+  if not (select accept_custom from public.profiles where id = recipient) then raise exception 'NO_CUSTOM'; end if;
+  return t;
+end $$;
+
 -- =====================================================================
 -- Fonctions appelées par l'application
 -- =====================================================================
@@ -205,13 +242,18 @@ begin
     'banned',         p.banned,
     'receive_on',     p.receive_on,
     'same_city_only', p.same_city_only,
+    'accept_custom',  p.accept_custom,
+    'premium',        coalesce(p.sub_status in ('active', 'trialing'), false),
+    'sub_status',     p.sub_status,
+    'sub_period_end', p.sub_period_end,
+    'sub_cancel_at_end', p.sub_cancel_at_end,
     'daily_limit',    st.daily_send_limit,
     'sent_today',     (select count(*) from public.bonbons
                         where sender_id = uid and created_at > now() - interval '24 hours'),
     'city_ready', coalesce((select public.city_ready(current_city) from public.sessions
                             where user_id = uid and expires_at > now()), false),
     'session', (select row_to_json(x) from (
-                  select id, pseudo, moods, bio, current_city, home_city, expires_at
+                  select id, pseudo, moods, bio, current_city, home_city, expires_at, avatar
                   from public.sessions
                   where user_id = uid and expires_at > now()) x)
   ) into res
@@ -260,9 +302,10 @@ begin
 end $$;
 
 -- Personnes présentes dans la même ville que moi
+drop function if exists public.discover();
 create or replace function public.discover()
 returns table (session_id uuid, pseudo text, moods text[], bio text,
-               home_city text, local boolean, already_sent boolean)
+               home_city text, local boolean, already_sent boolean, avatar int, accepts_custom boolean)
 language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); me public.sessions%rowtype;
 begin
@@ -276,7 +319,9 @@ begin
          public.norm_city(s.home_city) = public.norm_city(me.current_city),
          exists (select 1 from public.bonbons b
                  where b.sender_id = uid and b.recipient_id = s.user_id
-                   and b.created_at > now() - interval '24 hours')
+                   and b.created_at > now() - interval '24 hours'),
+         case when public.is_premium(s.user_id) then s.avatar else 0 end,
+         p.accept_custom
   from public.sessions s
   join public.profiles p on p.id = s.user_id
   where s.user_id <> uid
@@ -290,11 +335,12 @@ begin
   limit 60;
 end $$;
 
-create or replace function public.send_bonbon(p_session_id uuid, p_compliment int)
+drop function if exists public.send_bonbon(uuid, int);
+create or replace function public.send_bonbon(p_session_id uuid, p_compliment int, p_custom text default null)
 returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); problem text;
   me public.sessions%rowtype; them public.sessions%rowtype; tp public.profiles%rowtype;
-  lim int;
+  lim int; txt text;
 begin
   problem := public.access_problem(uid);
   if problem is not null then raise exception '%', problem; end if;
@@ -324,9 +370,12 @@ begin
      >= (select weekly_pair_limit from public.app_settings where id = 1)
   then raise exception 'WEEKLY'; end if;
 
+  txt := public.check_custom(uid, p_custom, them.user_id);
+  if txt is null and (p_compliment is null or p_compliment not between 0 and 11) then raise exception 'GONE'; end if;
   insert into public.bonbons (sender_id, recipient_id, sender_pseudo, sender_home_city,
-                              sender_current_city, recipient_pseudo, compliment_id)
-  values (uid, them.user_id, me.pseudo, me.home_city, me.current_city, them.pseudo, p_compliment);
+                              sender_current_city, recipient_pseudo, compliment_id, custom_text)
+  values (uid, them.user_id, me.pseudo, me.home_city, me.current_city, them.pseudo,
+          case when txt is null then p_compliment end, txt);
 end $$;
 
 -- Bonbons reçus (30 derniers jours)
@@ -334,7 +383,7 @@ drop function if exists public.inbox();
 create or replace function public.inbox()
 returns table (id uuid, sender_pseudo text, sender_home_city text, local boolean,
                compliment_id int, status text, created_at timestamptz,
-               is_reply boolean, replied boolean, can_reply boolean)
+               is_reply boolean, replied boolean, can_reply boolean, custom_text text)
 language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid();
 begin
@@ -348,7 +397,8 @@ begin
          (b.status <> 'reported'
           and b.created_at > now() - interval '24 hours'
           and not exists (select 1 from public.bonbons r where r.reply_to = b.id)
-          and not public.blocked_between(uid, b.sender_id))
+          and not public.blocked_between(uid, b.sender_id)),
+         b.custom_text
   from public.bonbons b
   where b.recipient_id = uid
     and b.created_at > now() - interval '30 days'
@@ -360,14 +410,14 @@ begin
 end $$;
 
 -- Renvoyer un bonbon en réponse à un bonbon reçu (une seule fois, dans les 24 h)
-create or replace function public.reply_bonbon(p_bonbon_id uuid, p_compliment int)
+drop function if exists public.reply_bonbon(uuid, int);
+create or replace function public.reply_bonbon(p_bonbon_id uuid, p_compliment int, p_custom text default null)
 returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); problem text; me public.sessions%rowtype;
-  orig public.bonbons%rowtype; tp public.profiles%rowtype; lim int;
+  orig public.bonbons%rowtype; tp public.profiles%rowtype; lim int; txt text;
 begin
   problem := public.access_problem(uid);
   if problem is not null then raise exception '%', problem; end if;
-  if p_compliment is null or p_compliment not between 0 and 11 then raise exception 'GONE'; end if;
   select * into me from public.sessions where user_id = uid and expires_at > now();
   if not found then raise exception 'NO_SESSION'; end if;
   select * into orig from public.bonbons where id = p_bonbon_id and recipient_id = uid;
@@ -380,9 +430,12 @@ begin
   if (select count(*) from public.bonbons
       where sender_id = uid and created_at > now() - interval '24 hours') >= lim
   then raise exception 'LIMIT'; end if;
+  txt := public.check_custom(uid, p_custom, orig.sender_id);
+  if txt is null and (p_compliment is null or p_compliment not between 0 and 11) then raise exception 'GONE'; end if;
   insert into public.bonbons (sender_id, recipient_id, sender_pseudo, sender_home_city,
-                              sender_current_city, recipient_pseudo, compliment_id, reply_to)
-  values (uid, orig.sender_id, me.pseudo, me.home_city, me.current_city, orig.sender_pseudo, p_compliment, orig.id);
+                              sender_current_city, recipient_pseudo, compliment_id, custom_text, reply_to)
+  values (uid, orig.sender_id, me.pseudo, me.home_city, me.current_city, orig.sender_pseudo,
+          case when txt is null then p_compliment end, txt, orig.id);
 end $$;
 
 -- Une mini-conversation est ouverte entre deux personnes quand :
@@ -467,10 +520,11 @@ begin
 end $$;
 
 -- Bonbons envoyés (pour voir les « merci »)
+drop function if exists public.sent();
 create or replace function public.sent()
-returns table (id uuid, recipient_pseudo text, compliment_id int, thanked boolean, created_at timestamptz)
+returns table (id uuid, recipient_pseudo text, compliment_id int, thanked boolean, created_at timestamptz, custom_text text)
 language sql security definer set search_path = public as $$
-  select b.id, b.recipient_pseudo, b.compliment_id, b.status = 'thanked', b.created_at
+  select b.id, b.recipient_pseudo, b.compliment_id, b.status = 'thanked', b.created_at, b.custom_text
   from public.bonbons b
   where b.sender_id = auth.uid() and b.created_at > now() - interval '30 days'
   order by b.created_at desc
@@ -541,13 +595,29 @@ begin
   insert into public.blocks (blocker_id, blocked_id) values (uid, target) on conflict do nothing;
 end $$;
 
-create or replace function public.update_settings(p_receive_on boolean, p_same_city_only boolean)
+drop function if exists public.update_settings(boolean, boolean);
+create or replace function public.update_settings(p_receive_on boolean default null, p_same_city_only boolean default null,
+                                                  p_accept_custom boolean default null)
 returns void language plpgsql security definer set search_path = public as $$
 begin
   update public.profiles
   set receive_on = coalesce(p_receive_on, receive_on),
-      same_city_only = coalesce(p_same_city_only, same_city_only)
+      same_city_only = coalesce(p_same_city_only, same_city_only),
+      accept_custom = coalesce(p_accept_custom, accept_custom)
   where id = auth.uid();
+end $$;
+
+-- Avatar pixel de l'identité du jour (Premium)
+create or replace function public.set_avatar(p_avatar int)
+returns json language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid();
+begin
+  if uid is null then raise exception 'AUTH'; end if;
+  if p_avatar is null or p_avatar not between 0 and 6 then raise exception 'GONE'; end if;
+  if p_avatar > 0 and not public.is_premium(uid) then raise exception 'PREMIUM'; end if;
+  update public.sessions set avatar = p_avatar where user_id = uid and expires_at > now();
+  if not found then raise exception 'NO_SESSION'; end if;
+  return public.my_status();
 end $$;
 
 -- Droit à l'effacement (RGPD) : supprime le compte et toutes ses données
@@ -555,6 +625,10 @@ create or replace function public.delete_account()
 returns void language plpgsql security definer set search_path = public, auth as $$
 begin
   if auth.uid() is null then raise exception 'AUTH'; end if;
+  -- Un abonnement encore actif doit d'abord être résilié, sinon il continuerait d'être prélevé
+  if exists (select 1 from public.profiles where id = auth.uid()
+             and sub_status in ('active', 'trialing', 'past_due') and not sub_cancel_at_end)
+  then raise exception 'CANCEL_FIRST'; end if;
   delete from auth.users where id = auth.uid();
 end $$;
 
@@ -563,12 +637,13 @@ revoke execute on all functions in schema public from public, anon;
 grant execute on function
   public.my_status(), public.confirm_adult(),
   public.start_session(text, text[], text, text, text), public.end_session(),
-  public.discover(), public.send_bonbon(uuid, int),
+  public.discover(), public.send_bonbon(uuid, int, text),
   public.inbox(), public.sent(), public.thank_bonbon(uuid),
-  public.report(text, uuid, uuid), public.block_only(uuid, uuid), public.update_bio(text), public.update_settings(boolean, boolean),
-  public.reply_bonbon(uuid, int), public.conversations(), public.thread(uuid), public.send_phrase(uuid, int),
+  public.report(text, uuid, uuid), public.block_only(uuid, uuid), public.update_bio(text), public.update_settings(boolean, boolean, boolean),
+  public.set_avatar(int), public.reply_bonbon(uuid, int, text), public.conversations(), public.thread(uuid), public.send_phrase(uuid, int),
   public.delete_account()
 to authenticated;
-revoke execute on function public.text_problem(text, boolean), public.city_ready(text), public.chat_open(uuid, uuid) from authenticated;
+revoke execute on function public.text_problem(text, boolean), public.city_ready(text), public.chat_open(uuid, uuid),
+  public.is_premium(uuid), public.check_custom(uuid, text, uuid) from authenticated;
 revoke execute on function public.handle_new_user(), public.access_problem(uuid),
   public.blocked_between(uuid, uuid) from authenticated;

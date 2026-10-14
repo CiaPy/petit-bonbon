@@ -28,14 +28,18 @@
 <li><strong>Bonbons</strong> : qui a envoyé quel compliment à qui, avec le pseudo et la ville affichés au moment de l'envoi. Visibles uniquement par l'expéditeur et le destinataire pendant 30 jours ; conservés jusqu'à la suppression du compte.</li>
 <li><strong>Petits échanges</strong> : les phrases choisies dans la liste et échangées entre deux personnes qui se sont envoyé un bonbon. Visibles uniquement par elles, masquées dès qu'une des deux identités du jour expire, et supprimées définitivement au bout de 2 jours.</li>
 <li><strong>Sécurité</strong> : blocages et signalements, avec le pseudo et la phrase signalés. Finalité : protection des utilisateurs (intérêt légitime). Conservation : jusqu'à un an après le traitement du signalement.</li>
-<li><strong>Paiement</strong> : traité directement par Stripe. Petit Bonbon ne reçoit que la confirmation du paiement, jamais les données de carte.</li>
+<li><strong>Compte Premium</strong> (seulement si tu t'abonnes) : ton adresse e-mail, pour te connecter et gérer l'abonnement. Elle n'est jamais visible par les autres utilisateurs. Conservation : jusqu'à la suppression du compte.</li>
+<li><strong>Abonnement</strong> : identifiants client et d'abonnement Stripe, statut, date de renouvellement. Finalité : gérer l'accès Premium (exécution du contrat). Les factures sont conservées par Stripe selon ses obligations comptables.</li>
+<li><strong>Paiement</strong> : traité directement par Stripe (et PayPal si tu choisis ce moyen). Petit Bonbon ne reçoit que la confirmation du paiement, jamais les données de carte.</li>
+<li><strong>Mots personnalisés</strong> : le texte écrit par un membre Premium, visible par l'expéditeur et le destinataire pendant 30 jours ; conservé jusqu'à la suppression du compte, ou un an après un signalement.</li>
 </ul>
 <p>Petit Bonbon ne demande jamais la position GPS. Seule la ville saisie par l'utilisateur est utilisée.</p>
 
 <h2>Sous-traitants</h2>
 <ul>
 <li>Supabase Inc. (base de données et authentification) — données hébergées dans la région Union européenne.</li>
-<li>Stripe Payments Europe Ltd. (paiement), Irlande.</li>
+<li>Stripe Payments Europe Ltd. (paiement et abonnement), Irlande.</li>
+<li>[NOM DU SERVICE D'ENVOI D'E-MAILS] (e-mails de connexion au compte Premium).</li>
 <li>GitHub Inc. (hébergement des pages de l'application), États-Unis — aucune donnée personnelle des utilisateurs n'y est stockée.</li>
 <li>Google Fonts (affichage des polices de caractères).</li>
 </ul>

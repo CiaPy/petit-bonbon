@@ -47,12 +47,45 @@ const REASONS = ['Message ou profil déplacé', 'Contenu sexuel', 'Je pense que 
 // Options réservées à l'abonnement Premium (pas encore disponibles)
 const PREMIUM_PRICE = '2,99 € / mois';
 const PREMIUM_FEATURES = [
-  { short: 'Mon propre mot', long: 'Écrire ton propre message' },
-  { short: 'Note vocale', long: 'Envoyer une note vocale' },
-  { short: 'Photo', long: 'Partager une photo' },
-  { short: 'Musique', long: 'Partager une musique' },
-  { short: 'Lien', long: 'Partager un lien' },
+  { short: 'Mon propre mot', long: 'Écrire tes propres mots (filtrés, 140 caractères)' },
+  { short: 'Avatar pixel', long: 'Un avatar en pixel art sur ton identité du jour' },
+  { short: 'Thèmes', long: 'Des thèmes de couleur pour ton app' },
+  { short: 'Rencontres', long: 'Tarif réduit aux rencontres live, dès qu’elles commencent' },
 ];
+const PREMIUM_SOON = 'Bientôt aussi : notes vocales, photos éphémères, musique et discussion libre.';
+const LOCKED_CHIPS = ['Mon propre mot', 'Note vocale', 'Photo', 'Musique', 'Lien'];
+
+// Avatars en pixel art (Premium). a = couleur, b = clair, c = foncé, w = blanc
+const PIXEL_AVATARS = [
+  null,
+  { name: 'Bonbon', a: '#FF8FB8', b: '#FFC2DA', rows: ['.........', '.........', 'a..aaa..a', 'aaaabaaaa', 'aaaaabaaa', 'aaaabaaaa', 'a..aaa..a', '.........', '.........'] },
+  { name: 'Cœur', a: '#FF7EA8', b: '#FFFFFF', rows: ['.........', '.aa...aa.', 'abwa.aaaa', 'aaaaaaaaa', 'aaaaaaaaa', '.aaaaaaa.', '..aaaaa..', '...aaa...', '....a....'] },
+  { name: 'Étoile', a: '#F2C94C', b: '#FFF1A8', rows: ['....a....', '....a....', '...aba...', 'aaaabaaaa', '.aaaaaaa.', '..aaaaa..', '..aa.aa..', '.aa...aa.', '.........'] },
+  { name: 'Sucette', a: '#7FD6B6', b: '#FFFFFF', c: '#C9A27E', rows: ['..aaaaa..', '.aabbbaa.', '.abaaaba.', '.ababbba.', '.aabaaaa.', '..aaaaa..', '....c....', '....c....', '....c....'] },
+  { name: 'Chat', a: '#B9A6F0', b: '#FFC2DA', c: '#3A2D4D', rows: ['a.......a', 'aa.....aa', 'aaaaaaaaa', 'aacaaacaa', 'aaaaaaaaa', 'aaaabaaaa', 'aaaaaaaaa', '.aaaaaaa.', '.........'] },
+  { name: 'Fleur', a: '#FFB38A', b: '#F2C94C', c: '#7FD6B6', rows: ['...aaa...', '.aa.a.aa.', '.aaabaaa.', 'aaabbbaaa', '.aaabaaa.', '.aa.a.aa.', '...aaa...', '....c....', '....c....'] },
+];
+function pixelAvatar(n, size = 32) {
+  const av = PIXEL_AVATARS[n]; if (!av) return '';
+  let r = '';
+  av.rows.forEach((row, y) => [...row.padEnd(9, '.').slice(0, 9)].forEach((ch, x) => {
+    const col = ch === 'a' ? av.a : ch === 'b' ? av.b : ch === 'c' ? av.c : ch === 'w' ? '#FFFFFF' : null;
+    if (col) r += `<rect x="${x}" y="${y}" width="1" height="1" fill="${col}"/>`;
+  }));
+  return `<svg class="pixel" width="${size}" height="${size}" viewBox="0 0 9 9" shape-rendering="crispEdges" aria-hidden="true">${r}</svg>`;
+}
+const THEMES = [
+  { id: 'classique', name: 'Classique', color: '#ECE4FF' },
+  { id: 'menthe', name: 'Menthe', color: '#C6F1DF' },
+  { id: 'peche', name: 'Pêche', color: '#FFE3CC' },
+  { id: 'citron', name: 'Citron', color: '#FFF1A8' },
+];
+function applyTheme() {
+  let t = 'classique';
+  try { t = localStorage.getItem('pb_theme') || 'classique'; } catch (_) {}
+  if (!(S.status && S.status.premium)) t = 'classique';
+  document.documentElement.dataset.theme = t;
+}
 const EVENTS_MSG = 'Quand nous serons plus nombreux, nous organiserons une fois par mois des rencontres live entre bonbons, petits pains et autres gourmandises :)';
 const AVATAR_COLORS = ['#FFE0EC', '#C6F1DF', '#FFF1A8', '#ECE4FF'];
 const ERRORS = {
@@ -63,6 +96,9 @@ const ERRORS = {
   ALREADY: 'Tu as déjà envoyé un bonbon à cette personne aujourd’hui.',
   SLOW: 'Doucement 🍬 Laisse une petite seconde entre deux messages.',
   LIMIT_CHAT: 'Vous avez beaucoup échangé aujourd’hui. Reprenez demain !',
+  PREMIUM: 'Cette option fait partie de Premium.',
+  NO_CUSTOM: 'Cette personne préfère recevoir les compliments de la liste.',
+  CANCEL_FIRST: 'Résilie d’abord ton abonnement Premium (Moi › Gérer mon abonnement). Tu pourras ensuite tout effacer.',
   WEEKLY: 'Tu as déjà offert plusieurs bonbons à cette personne cette semaine. Laisse-lui un peu d’air 🍬',
   BAD_TEXT: 'Ton surnom, tes quelques mots ou ta ville contient un contact (numéro, réseau social, lien) ou un mot interdit. Modifie-le pour continuer.',
   GONE: 'Cette personne n’est plus disponible.',
@@ -128,6 +164,7 @@ const S = {
   report: null,            // { bonbonId?, sessionId?, pseudo }
   premium: false,          // feuille « Premium » ouverte
   convs: [], chat: null, thread: [],   // mini-conversations
+  custom: '', premiumMode: 'join', checkmailMsg: '',
   banner: 0, seenInbox: null,
 };
 
@@ -138,6 +175,10 @@ const errMsg = (e) => {
   const raw = (e && (e.message || e.error_description || e.msg)) || String(e || '');
   const code = Object.keys(ERRORS).find((k) => raw.includes(k));
   if (code) return ERRORS[code];
+  if (/already (been )?registered|already exists|email_exists/i.test(raw)) return 'Cette adresse a déjà un compte. Utilise « J’ai déjà un compte Premium ».';
+  if (/Signups not allowed|user not found/i.test(raw)) return 'Aucun compte Premium avec cette adresse.';
+  if (/not authorized/i.test(raw)) return 'L’envoi d’e-mails n’est pas encore configuré. Réessaie plus tard.';
+  if (/manual linking/i.test(raw)) return 'La création de compte n’est pas encore activée. Réessaie plus tard.';
   if (/anonymous sign-ins are disabled/i.test(raw)) return 'L’entrée sans compte n’est pas encore activée. Réessaie dans quelques minutes.';
   if (/captcha/i.test(raw)) return 'Vérification anti-robot échouée. Recharge la page et réessaie.';
   if (/Invalid login credentials/i.test(raw)) return 'E-mail ou mot de passe incorrect.';
@@ -216,6 +257,7 @@ const candy = (fill, size = 88) => {
 };
 const errorBox = () => (S.error ? `<p class="error" role="alert">${esc(S.error)}</p>` : '');
 const isAnon = () => !!(S.user && S.user.is_anonymous);
+const isPremium = () => !!(S.status && S.status.premium);
 // Un utilisateur sans compte ne se « déconnecte » pas : il perdrait ses blocages et son accès
 const logoutBtn = (cls) => (isAnon() ? '' : `<button class="link muted ${cls}" data-a="logout">Me déconnecter</button>`);
 const legalLinks = () => `<p class="small" style="text-align:center"><a href="securite.html">Sécurité</a> · <a href="cgu.html">CGU</a> · <a href="confidentialite.html">Confidentialité</a> · <a href="mentions-legales.html">Mentions légales</a></p>`;
@@ -248,6 +290,7 @@ V.welcome = () => `<section class="screen welcome">
       <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>▶ Entrer</button>
     </form>
     <p class="small" style="text-align:center;margin:0">Sans compte, sans e-mail, sans mot de passe.</p>
+    ${C.PREMIUM_PAYMENT_LINK ? '<button class="link muted" style="align-self:center" data-a="goLogin">J’ai déjà un compte Premium</button>' : ''}
     ${legalLinks()}
   </div>
 </section>`;
@@ -279,8 +322,22 @@ V.auth = () => {
 V.checkmail = () => `<section class="screen center">
   ${candy('#1D6B5E')}
   <h2>Vérifie ta boîte mail</h2>
-  <p class="sub">On vient de t’envoyer un lien. Clique dessus pour activer ton compte, puis reviens ici.</p>
-  <button class="btn ghost small" data-a="goAuth" data-mode="login">Me connecter</button>
+  <p class="sub">${esc(S.checkmailMsg || 'On vient de t’envoyer un lien. Clique dessus, puis reviens ici.')}</p>
+  <p class="small">Pense à regarder dans les indésirables.</p>
+  <button class="btn ghost small" data-a="goWelcome">Retour</button>
+</section>`;
+
+V.login = () => `<section class="screen">
+  <button class="link muted" data-a="goWelcome" aria-label="Retour" style="align-self:flex-start;display:flex;align-items:center">${ICON.back}</button>
+  <div class="stack" style="gap:6px">
+    <h2>Retrouver mon Premium</h2>
+    <p class="sub">Indique l’adresse de ton compte Premium : on t’envoie un lien de connexion.</p>
+  </div>
+  <form class="stack" data-f="login" novalidate>
+    <div class="field"><label for="email">E-mail</label><input id="email" name="email" type="email" autocomplete="email" required></div>
+    ${errorBox()}
+    <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Recevoir le lien</button>
+  </form>
 </section>`;
 
 V.newpass = () => `<section class="screen">
@@ -391,7 +448,7 @@ V.tab_discover = () => {
       : `<span class="badge away">De passage · vient de ${esc(p.home_city)}</span>`;
     return `<article class="card">
       <div class="person">
-        <div class="avatar" style="--fill:${AVATAR_COLORS[i % 4]}">${esc((p.pseudo || '?').charAt(0).toUpperCase())}</div>
+        <div class="avatar" style="--fill:${AVATAR_COLORS[i % 4]}">${p.avatar ? pixelAvatar(p.avatar, 36) : esc((p.pseudo || '?').charAt(0).toUpperCase())}</div>
         <div class="stack" style="gap:3px;min-width:0"><span class="name">${esc(p.pseudo)}</span>${p.moods && p.moods.length ? `<span class="moods">${esc(p.moods.join(' · '))}</span>` : ''}</div>
       </div>
       ${p.bio ? `<p class="bio">« ${esc(p.bio)} »</p>` : ''}
@@ -428,10 +485,16 @@ V.tab_send = () => {
     <div role="radiogroup" aria-label="Choisis un compliment" class="stack" style="gap:10px">
       ${COMPLIMENTS.map((c, i) => `<button type="button" role="radio" class="compliment" aria-checked="${S.pick === i}" data-a="pick" data-i="${i}"><span class="dot"></span><span>${esc(c)}</span></button>`).join('')}
     </div>
-    <div class="stack" style="gap:10px">
+    ${isPremium()
+      ? (t.accepts_custom === false
+          ? '<p class="note" style="margin:var(--px)">Cette personne préfère recevoir les compliments de la liste.</p>'
+          : `<div class="field"><label for="custom">Ou écris ton propre mot <span style="color:var(--pink-deep)">· Premium</span></label>
+              <textarea id="custom" name="custom" rows="3" maxlength="140" placeholder="Il remplace le compliment choisi au-dessus">${esc(S.custom)}</textarea>
+              <span class="small">140 caractères. Bienveillant, sans numéro, réseau social ni lien : il est vérifié avant d’arriver.</span></div>`)
+      : `<div class="stack" style="gap:10px">
       <span class="label" style="padding:0 4px">Avec Premium</span>
-      <div class="chips">${PREMIUM_FEATURES.map((f) => `<button type="button" class="chip locked" data-a="openPremium">${ICON.lockSmall}${esc(f.short)}</button>`).join('')}</div>
-    </div>
+      <div class="chips">${LOCKED_CHIPS.map((f) => `<button type="button" class="chip locked" data-a="openPremium">${ICON.lockSmall}${esc(f)}</button>`).join('')}</div>
+    </div>`}
     ${errorBox()}
     <button class="btn" data-a="send" ${S.busy ? 'disabled' : ''}>Envoyer le bonbon</button>
   </div>`;
@@ -450,8 +513,8 @@ V.tab_inbox = () => {
   const city = cityLabel(S.status);
   const rec = S.inbox.length ? S.inbox.map((m) => `<article class="card">
       <span class="context">${m.local ? 'Vous êtes dans la même ville, mais vous ne vous connaissez pas.' : `Un inconnu de passage à ${esc(city)}, venu de ${esc(m.sender_home_city)}.`}</span>
-      <p class="quote">« ${esc(COMPLIMENTS[m.compliment_id] || '')} »</p>
-      <span class="small">— ${esc(m.sender_pseudo)} · ${timeAgo(m.created_at)}${m.is_reply ? ' · <strong>en réponse à ton bonbon</strong>' : ''}</span>
+      <p class="quote">« ${esc(m.custom_text || COMPLIMENTS[m.compliment_id] || '')} »</p>
+      <span class="small">— ${esc(m.sender_pseudo)} · ${timeAgo(m.created_at)}${m.is_reply ? ' · <strong>en réponse à ton bonbon</strong>' : ''}${m.custom_text ? ' · mot personnalisé' : ''}</span>
       ${m.status !== 'reported' ? `<div class="row">
           ${m.can_reply ? `<button class="btn small" data-a="replyBonbon" data-id="${esc(m.id)}">Renvoyer un bonbon</button>` : ''}
           ${m.status === 'open' ? `<button class="btn small soft" data-a="thank" data-id="${esc(m.id)}">Dire merci</button>` : ''}
@@ -463,7 +526,7 @@ V.tab_inbox = () => {
     </article>`).join('')
     : `<div class="empty">${candy('#E2CFCB', 64)}<span>Pas encore de bonbon. Garde l’app ouverte, on te prévient dès qu’un compliment arrive.</span></div>`;
   const sent = S.sent.length ? `<h3 style="margin:12px 4px 0">Tes bonbons envoyés</h3>` + S.sent.map((m) => `<div class="card" style="gap:6px;padding:14px 16px">
-      <span style="font-size:15px">« ${esc(COMPLIMENTS[m.compliment_id] || '')} » à <strong>${esc(m.recipient_pseudo)}</strong></span>
+      <span style="font-size:15px">« ${esc(m.custom_text || COMPLIMENTS[m.compliment_id] || '')} » à <strong>${esc(m.recipient_pseudo)}</strong></span>
       <span class="small">${timeAgo(m.created_at)}${m.thanked ? ' · <strong style="color:var(--accent-deep)">Merci reçu</strong>' : ''}</span>
     </div>`).join('') : '';
   const convs = S.convs.length ? `<h3 style="margin:0 4px">Vos petits échanges</h3>` + S.convs.map((c) => `<button class="card conv" data-a="openChat" data-sid="${esc(c.session_id)}">
@@ -516,18 +579,19 @@ V.tab_me = () => {
     <div class="card" style="padding:6px 18px;gap:0">
       <span class="small" style="padding-top:12px">Ce que je reçois</span>
       ${tg('receive_on', 'Recevoir des bonbons', 'Si c’est coupé, tu n’apparais plus dans « Découvrir ».')}
+      ${tg('accept_custom', 'Recevoir des mots personnalisés', 'Écrits par des membres Premium, vérifiés avant d’arriver.')}
     </div>
     <div class="card" style="padding:6px 18px;gap:0">
       <span class="small" style="padding-top:12px">Sons</span>
       <button class="toggle" role="switch" aria-checked="${SOUND.on}" data-a="toggleSound" data-key="on"><span class="txt"><strong>Sons de l’app</strong><span>Ouverture et bonbon reçu.</span></span><span class="track"></span></button>
       <button class="toggle" role="switch" aria-checked="${SOUND.on && SOUND.clicks}" data-a="toggleSound" data-key="clicks" ${SOUND.on ? '' : 'disabled'}><span class="txt"><strong>Sons des clics</strong><span>Un petit bruit à chaque appui.</span></span><span class="track"></span></button>
     </div>
-    <div class="premium">
+    ${isPremium() ? V.premiumCard() : `<div class="premium">
       <span class="kicker">PREMIUM · ${PREMIUM_PRICE}</span>
-      <h3 style="color:#fff">Tes propres mots, ta voix, ta musique du jour</h3>
-      <p>Messages personnalisés, notes vocales, photos, musique et liens. L’app de base reste gratuite.</p>
-      <button class="btn small" style="background:#fff;color:var(--ink);align-self:flex-start" data-a="openPremium">Découvrir</button>
-    </div>
+      <h3>Tes propres mots, ton avatar pixel, tes couleurs</h3>
+      <p>L’app de base reste gratuite. ${esc(PREMIUM_SOON)}</p>
+      <button class="btn small" style="align-self:flex-start" data-a="openPremium">Découvrir</button>
+    </div>`}
     <div class="events"><span class="events-txt"><strong>Les rencontres live 🍬</strong><span>${esc(EVENTS_MSG)}</span></span></div>
     <button class="btn ghost" data-a="leave">Partir sans laisser de trace</button>
     <div class="stack" style="gap:0">
@@ -539,15 +603,84 @@ V.tab_me = () => {
   </div>`;
 };
 
-V.premiumSheet = () => `<div class="sheet-back" data-a="closePremium">
-  <div class="sheet" role="dialog" aria-modal="true" aria-label="Premium" data-stop="1">
-    <span class="small" style="font-weight:700;letter-spacing:1px;color:var(--accent)">PREMIUM · ${PREMIUM_PRICE.toUpperCase()}</span>
+const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) : '');
+function portalLink() {
+  let u; try { u = new URL(C.PREMIUM_PORTAL_LINK); } catch (_) { return '#'; }
+  if (S.user && S.user.email) u.searchParams.set('prefilled_email', S.user.email);
+  return u.toString();
+}
+function subscribeLink() {
+  let u; try { u = new URL(C.PREMIUM_PAYMENT_LINK); } catch (_) { return '#'; }
+  if (S.user) {
+    u.searchParams.set('client_reference_id', S.user.id);
+    if (S.user.email) u.searchParams.set('prefilled_email', S.user.email);
+  }
+  return u.toString();
+}
+
+V.premiumCard = () => {
+  const st = S.status, s = st.session || {};
+  const end = st.sub_period_end ? (st.sub_cancel_at_end ? `Se termine le ${fmtDate(st.sub_period_end)}` : `Renouvellement le ${fmtDate(st.sub_period_end)}`) : 'Abonnement actif';
+  return `<div class="premium">
+    <span class="kicker">PREMIUM ACTIF</span>
+    <span class="small">${esc(end)}${S.user && S.user.email ? ' · ' + esc(S.user.email) : ''}</span>
+    <span class="label">Ton avatar</span>
+    <div class="chips">
+      <button type="button" class="chip" aria-pressed="${!s.avatar}" data-a="setAvatar" data-n="0">Initiale</button>
+      ${PIXEL_AVATARS.map((av, n) => (av ? `<button type="button" class="chip avatar-chip" aria-pressed="${s.avatar === n}" aria-label="${esc(av.name)}" data-a="setAvatar" data-n="${n}">${pixelAvatar(n, 28)}</button>` : '')).join('')}
+    </div>
+    <span class="label">Ton thème</span>
+    <div class="chips">${THEMES.map((t) => `<button type="button" class="chip" aria-pressed="${document.documentElement.dataset.theme === t.id}" data-a="setTheme" data-theme="${t.id}"><span class="swatch" style="background:${t.color}"></span>${esc(t.name)}</button>`).join('')}</div>
+    <p>${esc(PREMIUM_SOON)}</p>
+    ${C.PREMIUM_PORTAL_LINK ? `<a class="btn small ghost" style="align-self:flex-start" href="${esc(portalLink())}" target="_blank" rel="noopener">Gérer / résilier mon abonnement</a>` : ''}
+  </div>`;
+};
+
+V.premiumSheet = () => {
+  const ready = !!C.PREMIUM_PAYMENT_LINK;
+  const head = `<span class="small" style="font-weight:700;letter-spacing:1px;color:var(--pink-deep)">PREMIUM · ${PREMIUM_PRICE.toUpperCase()}</span>
     <h3>Offre plus qu’un bonbon</h3>
     <div class="bullets" style="margin:6px 0">${PREMIUM_FEATURES.map((f) => `<div>${esc(f.long)}</div>`).join('')}</div>
-    <p class="note" style="margin:0">Premium arrive très bientôt. En attendant, toute l’app de base est gratuite.</p>
-    <button class="btn" data-a="closePremium">D’accord</button>
-  </div>
+    <p class="small" style="margin:0">${esc(PREMIUM_SOON)}</p>`;
+  let body;
+  if (!ready) {
+    body = `<p class="note" style="margin:0">Premium arrive très bientôt. En attendant, toute l’app de base est gratuite.</p>
+      <button class="btn" data-a="closePremium">D’accord</button>`;
+  } else if (isPremium()) {
+    body = `<p class="note" style="margin:0">Tu es Premium. Merci 🍬 Tout se règle dans l’onglet « Moi ».</p>
+      <button class="btn" data-a="closePremium">Super</button>`;
+  } else if (S.premiumMode === 'login') {
+    body = `<form class="stack" data-f="login" novalidate>
+        <div class="field"><label for="email">E-mail de ton compte Premium</label><input id="email" name="email" type="email" autocomplete="email" required></div>
+        ${errorBox()}
+        <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Recevoir le lien de connexion</button>
+      </form>
+      <button class="link muted" data-a="premiumMode" data-mode="join">Je n’ai pas encore de compte</button>`;
+  } else if (isAnon() && S.user && S.user.new_email) {
+    body = `<p class="note" style="margin:0">On t’a envoyé un lien à <strong>${esc(S.user.new_email)}</strong>. Clique dessus, puis reviens ici pour t’abonner.</p>
+      <button class="btn ghost small" data-a="premiumMode" data-mode="join" data-reset="1">Changer d’adresse</button>`;
+  } else if (isAnon()) {
+    body = `<p class="small" style="margin:0"><strong>Étape 1 sur 2.</strong> Pour t’abonner, il te faut un compte : ton e-mail reste privé, et tu gardes ton identité du jour et tes bonbons.</p>
+      <form class="stack" data-f="premiumEmail" novalidate>
+        <div class="field"><label for="email">Ton e-mail</label><input id="email" name="email" type="email" autocomplete="email" required></div>
+        ${errorBox()}
+        <button class="btn" type="submit" ${S.busy ? 'disabled' : ''}>Recevoir le lien</button>
+      </form>
+      <button class="link muted" data-a="premiumMode" data-mode="login">J’ai déjà un compte Premium</button>`;
+  } else {
+    body = `<p class="small" style="margin:0"><strong>Étape 2 sur 2.</strong> Compte : ${esc(S.user.email || '')}</p>
+      <form class="stack" data-f="subscribe" novalidate>
+        <label class="check"><input type="checkbox" name="terms"><span>J’accepte les <a href="cgu.html#premium" target="_blank">conditions de l’abonnement</a> : ${PREMIUM_PRICE}, sans engagement, résiliable à tout moment en ligne.</span></label>
+        <label class="check"><input type="checkbox" name="waive"><span>Je veux accéder à Premium tout de suite et je renonce à mon droit de rétractation de 14 jours.</span></label>
+        ${errorBox()}
+        <button class="btn" type="submit">S’abonner · ${PREMIUM_PRICE}</button>
+      </form>
+      <p class="small" style="margin:0">Paiement sécurisé par Stripe (carte, Apple Pay, Google Pay, PayPal). Petit Bonbon ne voit jamais ta carte.</p>`;
+  }
+  return `<div class="sheet-back" data-a="closePremium">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Premium" data-stop="1">${head}${body}</div>
 </div>`;
+};
 
 V.reportSheet = () => `<div class="sheet-back" data-a="closeReport">
   <div class="sheet" role="dialog" aria-modal="true" aria-label="Signaler" data-stop="1">
@@ -604,6 +737,7 @@ async function route() {
     S.view = 'welcome'; S.error = errMsg(e); return render();
   }
   const st = S.status;
+  applyTheme();
   if (st.banned) S.view = 'banned';
   else if (!st.adult) S.view = 'adult';
   else if (st.paywall && !st.paid) S.view = 'paywall';
@@ -713,12 +847,12 @@ const A = {
     if (d.tab === 'discover' || d.tab === 'inbox') loadData();
   },
   refresh() { S.peopleLoaded = false; render(); loadData(); },
-  pickTarget(d) { S.target = S.people[+d.i]; S.pick = 0; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0); },
+  pickTarget(d) { S.target = S.people[+d.i]; S.pick = 0; S.custom = ''; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0); },
   pick(d) { S.pick = +d.i; render(); },
   replyBonbon(d) {
     const m = S.inbox.find((x) => x.id === d.id); if (!m) return;
     S.target = { pseudo: m.sender_pseudo, local: m.local, home_city: m.sender_home_city, reply_id: m.id };
-    S.pick = 0; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0);
+    S.pick = 0; S.custom = ''; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0);
   },
   openChat(d) {
     const c = S.convs.find((x) => x.session_id === d.sid); if (!c) return;
@@ -738,9 +872,11 @@ const A = {
   async send() {
     S.busy = true; S.error = ''; render();
     try {
-      if (S.target.reply_id) await rpc('reply_bonbon', { p_bonbon_id: S.target.reply_id, p_compliment: S.pick });
-      else await rpc('send_bonbon', { p_session_id: S.target.session_id, p_compliment: S.pick });
-      S.lastSentText = COMPLIMENTS[S.pick];
+      const custom = isPremium() && S.custom.trim() ? S.custom.trim() : null;
+      if (S.target.reply_id) await rpc('reply_bonbon', { p_bonbon_id: S.target.reply_id, p_compliment: S.pick, p_custom: custom });
+      else await rpc('send_bonbon', { p_session_id: S.target.session_id, p_compliment: S.pick, p_custom: custom });
+      S.lastSentText = custom || COMPLIMENTS[S.pick];
+      S.custom = '';
       S.status.sent_today += 1;
       S.target.already_sent = true;
       S.tab = 'sentok';
@@ -774,8 +910,22 @@ const A = {
     SOUND.save(); render();
   },
   hideEvents() { S.hideEvents = true; try { localStorage.setItem('pb_hide_events', '1'); } catch (_) {} render(); },
-  openPremium() { S.premium = true; render(); },
-  closePremium() { S.premium = false; render(); },
+  openPremium() { S.premium = true; S.error = ''; S.premiumMode = 'join'; render(); },
+  closePremium() { S.premium = false; S.error = ''; render(); },
+  premiumMode(d) { S.premiumMode = d.mode; S.error = ''; if (d.reset && S.user) S.user = { ...S.user, new_email: null }; render(); },
+  goLogin() { S.view = 'login'; S.error = ''; render(); },
+  async setAvatar(d) {
+    try { S.status = await rpc('set_avatar', { p_avatar: +d.n }); render(); } catch (e) { toast(errMsg(e)); }
+  },
+  setTheme(d) { try { localStorage.setItem('pb_theme', d.theme); } catch (_) {} applyTheme(); render(); },
+  async checkPremium() {
+    for (let i = 0; i < 8; i++) {
+      try { S.status = await rpc('my_status'); } catch (_) {}
+      if (isPremium()) { applyTheme(); render(); toast('Bienvenue dans Premium 🍬'); return; }
+      await new Promise((r) => setTimeout(r, 2500));
+    }
+    toast('Paiement reçu ? Premium s’activera dans un instant. Recharge la page dans une minute.');
+  },
   async confirmReport(d) {
     const r = S.report; S.report = null;
     if (r.fromChat) { S.chat = null; S.tab = 'inbox'; }
@@ -790,7 +940,7 @@ const A = {
     const key = d.key, val = !S.status[key];
     S.status[key] = val; render();
     try {
-      await rpc('update_settings', { p_receive_on: key === 'receive_on' ? val : null, p_same_city_only: key === 'same_city_only' ? val : null });
+      await rpc('update_settings', { p_receive_on: key === 'receive_on' ? val : null, p_same_city_only: key === 'same_city_only' ? val : null, p_accept_custom: key === 'accept_custom' ? val : null });
     } catch (e) { S.status[key] = !val; render(); toast(errMsg(e)); }
   },
   editIdentity() {
@@ -806,7 +956,7 @@ const A = {
     toast('Identité effacée. À une prochaine fois, sous un autre nom.');
   },
   async deleteAccount() {
-    if (!confirm('Effacer définitivement toutes tes données (identité, bonbons, réglages) ? Ton accès payé sera perdu et ne sera pas remboursé.')) return;
+    if (!confirm(isAnon() ? 'Effacer définitivement toutes tes données (identité, bonbons, réglages) ?' : 'Supprimer définitivement ton compte et toutes tes données ?')) return;
     try { await rpc('delete_account'); } catch (e) { return toast(errMsg(e)); }
     await sb.auth.signOut();
     S.user = null; S.status = null; S.view = 'welcome'; render();
@@ -823,6 +973,32 @@ const A = {
 };
 
 const F = {
+  async premiumEmail(form) {
+    const email = String(new FormData(form).get('email') || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { S.error = 'Indique une adresse e-mail valide.'; return render(); }
+    S.busy = true; S.error = ''; render();
+    const { data, error } = await sb.auth.updateUser({ email }, { emailRedirectTo: location.origin + location.pathname + '?premium=email' });
+    S.busy = false;
+    if (error) { S.error = errMsg(error); return render(); }
+    S.user = data.user || { ...S.user, new_email: email };
+    if (!S.user.new_email && S.user.is_anonymous) S.user.new_email = email;
+    render();
+  },
+  async login(form) {
+    const email = String(new FormData(form).get('email') || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { S.error = 'Indique une adresse e-mail valide.'; return render(); }
+    S.busy = true; S.error = ''; render();
+    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: location.origin + location.pathname } });
+    S.busy = false;
+    if (error) { S.error = errMsg(error); return render(); }
+    S.premium = false; S.checkmailMsg = `On a envoyé un lien de connexion à ${email}. Ouvre-le sur cet appareil.`;
+    S.view = 'checkmail'; render();
+  },
+  subscribe(form) {
+    const fd = new FormData(form);
+    if (!fd.get('terms') || !fd.get('waive')) { S.error = 'Coche les deux cases pour continuer.'; return render(); }
+    location.href = subscribeLink();
+  },
   async bio(form) {
     const bio = String(new FormData(form).get('bio') || '');
     S.busy = true; S.error = ''; render();
@@ -919,6 +1095,7 @@ document.addEventListener('submit', (e) => {
   if (fn) fn(form);
 });
 document.addEventListener('input', (e) => {
+  if (e.target.id === 'custom') S.custom = e.target.value;
   const k = e.target.dataset && e.target.dataset.bind;
   if (k) S.form[k] = e.target.value;
 });
@@ -946,12 +1123,21 @@ async function start() {
   sb.auth.onAuthStateChange((event, session) => {
     if (event === 'PASSWORD_RECOVERY') { S.user = session && session.user; S.view = 'newpass'; render(); return; }
     if (event === 'SIGNED_OUT') { S.user = null; }
+    if ((event === 'USER_UPDATED' || event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
+      const was = S.user && S.user.is_anonymous;
+      S.user = session.user;
+      if (S.premium || (was && !S.user.is_anonymous)) render();
+    }
   });
   const { data } = await sb.auth.getSession();
   S.user = data.session ? data.session.user : null;
   if (S.view === 'newpass') return;
   await route();
-  if (new URLSearchParams(location.search).has('paid') && S.view === 'paywall') A.checkPaid();
+  const qs = new URLSearchParams(location.search);
+  if (qs.has('paid') && S.view === 'paywall') A.checkPaid();
+  if (qs.get('premium') === 'email' && S.view === 'main') { S.premium = true; render(); }
+  if (qs.get('premium') === '1') A.checkPremium();
+  if (qs.has('premium') || qs.has('paid')) history.replaceState(null, '', location.pathname);
 }
 start();
 

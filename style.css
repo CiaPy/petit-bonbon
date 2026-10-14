@@ -161,6 +161,14 @@ h3 { font-size: 13px; line-height: 1.6; }
 
 .empty { text-align: center; padding: 36px 12px; color: var(--muted); display: flex; flex-direction: column; gap: 16px; align-items: center; font-size: 17px; }
 
+/* ---------- Premium ---------- */
+.avatar svg { display: block; }
+.avatar-chip { padding: 0 10px; display: inline-flex; align-items: center; }
+.swatch { display: inline-block; width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px; box-shadow: 0 0 0 2px #fff, 0 0 0 3px var(--lilac-shade); }
+html[data-theme="menthe"] { --bg: #F1FBF6; --bg-dot: #D3EFE2; --lilac: #C6F1DF; --lilac-shade: #9EDCC3; }
+html[data-theme="peche"]  { --bg: #FFF6EE; --bg-dot: #F7DFCB; --lilac: #FFE3CC; --lilac-shade: #F5C9A5; }
+html[data-theme="citron"] { --bg: #FFFCEB; --bg-dot: #F3EAB8; --lilac: #FFF1A8; --lilac-shade: #F2DC77; }
+
 /* ---------- Mini-conversation ---------- */
 .card.conv { width: auto; text-align: left; cursor: pointer; gap: 6px; font: inherit; color: inherit; }
 .dot-new { width: 12px; height: 12px; background: var(--pink); box-shadow: 0 3px 0 var(--pink-shade); }
@@ -229,3 +237,6 @@ body.veiled #app, body.veiled .banner, body.veiled .sheet-back { filter: blur(18
 @media (prefers-reduced-motion: reduce) {
   .cursor, .banner { animation: none; }
 }
+
+/* Champs lisibles sur les feuilles blanches */
+.sheet .field input, .sheet .field textarea { --fill: var(--bg); --shade: var(--lilac-shade); }

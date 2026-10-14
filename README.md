@@ -50,6 +50,52 @@ Remplace les `[CROCHETS]` dans `mentions-legales.html`, `cgu.html` et `confident
 
 ---
 
+## Premium : abonnement Stripe Billing (2,99 €/mois)
+
+Tant que `PREMIUM_PAYMENT_LINK` est vide dans `config.js`, Premium reste une vitrine (« bientôt »). Pour l'ouvrir :
+
+### P1. Envoi d'e-mails (obligatoire)
+Le service d'e-mails intégré à Supabase n'envoie qu'aux membres de ton équipe (2 par heure). Pour que n'importe qui puisse créer son compte Premium :
+1. Crée un compte gratuit chez un service d'envoi (ex. **Brevo**, entreprise française, offre gratuite quotidienne ; ou **Resend**).
+2. Récupère ses identifiants **SMTP** (serveur, port, identifiant, mot de passe).
+3. Supabase › **Authentication › Emails › SMTP Settings** : active « Custom SMTP » et colle-les. Expéditeur : de préférence une adresse sur ton propre domaine (ex. `bonjour@petitbonbon.fr`) : les e-mails envoyés « au nom » d'une adresse Proton ou Gmail risquent de finir en indésirables.
+4. Supabase › **Authentication › Emails › Templates** : traduis en français « Confirm email change » et « Magic Link ».
+
+### P2. Comptes
+Supabase › **Authentication › Sign In / Providers** : active **Allow manual linking** (pour transformer l'identifiant anonyme en compte avec e-mail, sans rien perdre).
+
+### P3. Produit et lien de paiement Stripe
+1. Stripe › **Catalogue de produits › Ajouter un produit** : « Petit Bonbon Premium », **2,99 €**, **récurrent, mensuel**.
+2. **Liens de paiement › Nouveau** › ce produit. Options :
+   - *Après le paiement* › rediriger vers `https://petitbonbon.github.io/?premium=1`
+   - ne pas demander d'adresse de livraison.
+3. Copie le lien (`https://buy.stripe.com/…`) dans `config.js` › `PREMIUM_PAYMENT_LINK`.
+4. **PayPal (facultatif)** : Paramètres › Moyens de paiement › PayPal › activer et lier un compte PayPal Business, puis cliquer sur **Enable** à côté de « Recurring payments » (validation Stripe en 2 à 5 jours ouvrés).
+
+### P4. Portail « Gérer / résilier » (obligatoire en France)
+1. Stripe › **Paramètres › Facturation › Portail client** : autorise la **résiliation** (à la fin de la période) et la mise à jour du moyen de paiement ; renseigne le lien vers `https://petitbonbon.github.io/cgu.html#premium`.
+2. Dans la même page, active le **lien de connexion** (« no-code ») et copie-le (`https://billing.stripe.com/p/login/…`) dans `config.js` › `PREMIUM_PORTAL_LINK`.
+
+### P5. Webhook
+Supabase › **Edge Functions › stripe-webhook** : remplace le code par celui de `supabase/functions/stripe-webhook/index.ts` et redéploie (« Verify JWT » désactivé).
+Stripe › **Développeurs › Webhooks** › ta destination › ajoute les événements :
+`checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`.
+(Si tu n'as pas encore de webhook : URL `https://<ID-DU-PROJET>.supabase.co/functions/v1/stripe-webhook`, puis secret `whsec_…` › Supabase › Edge Functions › Secrets › `STRIPE_WEBHOOK_SECRET`.)
+
+### P6. Tester avant d'ouvrir
+1. En **mode test** Stripe, crée le même produit et lien, et teste avec la carte `4242 4242 4242 4242`.
+2. Vérifie : abonnement › Premium actif dans « Moi » › résiliation par le portail › « Se termine le … ».
+3. Repasse en **mode réel**, refais P3 à P5 avec les liens réels.
+
+### Pilotage Premium (SQL Editor)
+```sql
+-- Abonnés actifs
+select count(*) from profiles where sub_status in ('active', 'trialing');
+-- Offrir Premium à quelqu'un (ex. testeur) : remplace l'adresse
+update profiles set sub_status = 'active', sub_period_end = now() + interval '30 days'
+where id = (select id from auth.users where email = 'personne@exemple.fr');
+```
+
 ## Pilotage au quotidien (Supabase › SQL Editor)
 
 ```sql
@@ -107,7 +153,8 @@ supabase/functions/stripe-webhook/index.ts   déblocage après paiement
 
 ## Feuille de route Premium (pas encore développé)
 
-Options prévues : message personnalisé, note vocale, photo éphémère, musique, lien (2,99 €/mois, compte avec e-mail requis).
+**Premium v1 (en place)** : mots personnalisés filtrés, avatars pixel, thèmes de couleur, tarif réduit aux rencontres.
+**Premium v2 (à venir)** : note vocale, photo éphémère, musique, lien, discussion libre.
 
 **Discussion libre (Premium)** : prolongement des petits échanges à phrases toutes faites. Ne s'ouvre que si les **deux** personnes l'acceptent explicitement, uniquement entre abonnés. Filtre automatique (contacts, liens, insultes, contenus sexuels) avant réception, signalement en un geste, file de modération humaine. Aucun lien ni numéro autorisé, même en Premium.
 

@@ -15,6 +15,12 @@ window.PB_CONFIG = {
   // Laisse vide tant que Stripe n'est pas prêt : l'écran de paiement le signalera.
   STRIPE_PAYMENT_LINK: "",
 
+  // Premium (Stripe Billing) — voir README, « Premium »
+  // Lien de paiement de l'abonnement mensuel (https://buy.stripe.com/…)
+  PREMIUM_PAYMENT_LINK: "",
+  // Lien de connexion du portail client Stripe, pour gérer / résilier (https://billing.stripe.com/p/login/…)
+  PREMIUM_PORTAL_LINK: "",
+
   // Adresse affichée pour le contact et les signalements urgents
   CONTACT_EMAIL: "petitbonbon-app@proton.me",
 };
