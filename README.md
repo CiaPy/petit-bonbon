@@ -16,7 +16,7 @@ Dépôt › **Settings** › **Pages** › *Build and deployment* › Source : *
 L'app sera en ligne à l'adresse **https://ciapy.github.io/petit-bonbon/** (1 à 2 minutes après).
 
 ### 2. Créer la base Supabase (5 min)
-1. Sur [supabase.com](https://supabase.com), **New project**. Région conseillée : **West EU (Paris)**. Note le mot de passe de la base quelque part.
+1. Sur [supabase.com](https://supabase.com), **New project**. Région : **Europe** (ou un pays de l’UE). Note le mot de passe de la base quelque part.
 2. **SQL Editor** › **New query** › colle tout le contenu de `supabase/schema.sql` › **Run**. Le message doit être *Success*.
 3. **Authentication** › **Sign In / Providers** › **Email** : désactive **Confirm email** pour le lancement.
    *Pourquoi :* l'envoi d'e-mails intégré à Supabase est limité à quelques messages par heure. Plus tard, branche un service d'e-mails gratuit (ex. Resend) dans **Authentication › SMTP** et réactive la confirmation.
