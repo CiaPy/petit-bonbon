@@ -53,6 +53,51 @@ const ERRORS = {
   AUTH: 'Ta session a expiré, reconnecte-toi.',
 };
 
+// ---------- Sons -------------------------------------------------------
+// Les fichiers sont dans le dossier sons/. S'il en manque un, l'app reste
+// simplement silencieuse pour ce son-là.
+const SOUND_FILES = { open: 'sons/ouverture.mp3', click: 'sons/clic.mp3', bonbon: 'sons/bonbon-recu.mp3' };
+const SOUND_VOLUME = { open: 0.6, click: 0.35, bonbon: 0.7 };
+const SOUND = {
+  on: true, clicks: true, opened: false, cache: {},
+  load() {
+    try {
+      this.on = localStorage.getItem('pb_sound') !== 'off';
+      this.clicks = localStorage.getItem('pb_sound_clicks') !== 'off';
+    } catch (_) {}
+    Object.entries(SOUND_FILES).forEach(([k, src]) => {
+      const a = new Audio(); a.preload = 'auto'; a.src = src; a.volume = SOUND_VOLUME[k];
+      a.addEventListener('error', () => { this.cache[k] = null; });
+      this.cache[k] = a;
+    });
+  },
+  play(k) {
+    if (!this.on || (k === 'click' && !this.clicks)) return;
+    const a = this.cache[k];
+    if (!a) return;
+    const n = a.cloneNode(); n.volume = a.volume;   // copie : les clics rapides peuvent se chevaucher
+    n.play().catch(() => {});
+  },
+  save() {
+    try {
+      localStorage.setItem('pb_sound', this.on ? 'on' : 'off');
+      localStorage.setItem('pb_sound_clicks', this.clicks ? 'on' : 'off');
+    } catch (_) {}
+  },
+};
+SOUND.load();
+// Les navigateurs interdisent de jouer un son avant le premier geste de la
+// personne : le son d'ouverture part donc à son premier toucher de l'écran.
+function playOpenOnce() {
+  if (SOUND.opened) return false;
+  SOUND.opened = true;
+  SOUND.play('open');
+  return true;
+}
+document.addEventListener('pointerdown', (e) => {
+  if (playOpenOnce()) e.__pbOpenPlayed = true;
+}, { capture: true });
+
 // ---------- État -------------------------------------------------------
 const S = {
   view: 'loading',          // setup | welcome | auth | checkmail | newpass | adult | paywall | banned | identity | main
@@ -418,6 +463,11 @@ V.tab_me = () => {
       ${tg('receive_on', 'Recevoir des bonbons', 'Si c’est coupé, tu n’apparais plus dans « Découvrir ».')}
       ${tg('same_city_only', 'Seulement des gens de ma ville', 'Les personnes de passage ne te verront pas.')}
     </div>
+    <div class="card" style="padding:6px 18px;gap:0">
+      <span class="small" style="padding-top:12px">Sons</span>
+      <button class="toggle" role="switch" aria-checked="${SOUND.on}" data-a="toggleSound" data-key="on"><span class="txt"><strong>Sons de l’app</strong><span>Ouverture et bonbon reçu.</span></span><span class="track"></span></button>
+      <button class="toggle" role="switch" aria-checked="${SOUND.on && SOUND.clicks}" data-a="toggleSound" data-key="clicks" ${SOUND.on ? '' : 'disabled'}><span class="txt"><strong>Sons des clics</strong><span>Un petit bruit à chaque appui.</span></span><span class="track"></span></button>
+    </div>
     <div class="premium">
       <span class="kicker">PREMIUM · ${PREMIUM_PRICE}</span>
       <h3 style="color:#fff">Tes propres mots, ta voix, ta musique du jour</h3>
@@ -523,6 +573,7 @@ function noteInbox(list) {
   const ids = new Set(list.map((m) => m.id));
   if (S.seenInbox) {
     const fresh = list.filter((m) => !S.seenInbox.has(m.id) && m.status === 'open').length;
+    if (fresh) SOUND.play('bonbon');
     if (fresh && S.tab !== 'inbox') S.banner += fresh;
   }
   S.seenInbox = ids;
@@ -612,6 +663,10 @@ const A = {
       await loadData();
     } catch (e) { toast(errMsg(e)); }
     render();
+  },
+  toggleSound(d) {
+    if (d.key === 'on') SOUND.on = !SOUND.on; else SOUND.clicks = !SOUND.clicks;
+    SOUND.save(); render();
   },
   hideEvents() { S.hideEvents = true; try { localStorage.setItem('pb_hide_events', '1'); } catch (_) {} render(); },
   openPremium() { S.premium = true; render(); },
@@ -731,6 +786,8 @@ const F = {
 
 // ---------- Événements -------------------------------------------------
 document.addEventListener('click', (e) => {
+  const tap = e.target.closest('button, a, .chip, .compliment, .reason, input[type=checkbox]');
+  if (tap && !e.__pbOpenPlayed) SOUND.play('click');
   const el = e.target.closest('[data-a]');
   if (!el) return;
   // un clic dans la feuille ne doit pas la fermer
