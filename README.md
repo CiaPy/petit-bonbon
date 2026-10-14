@@ -13,7 +13,7 @@ Coût fixe : **0 €** — GitHub Pages (hébergement), Supabase offre gratuite 
 ### 1. Activer GitHub Pages (1 min)
 Dépôt › **Settings** › **Pages** › *Build and deployment* › Source : **Deploy from a branch** › Branche **main**, dossier **/ (root)** › **Save**.
 
-L'app sera en ligne à l'adresse **https://ciapy.github.io/petit-bonbon/** (1 à 2 minutes après).
+L'app sera en ligne à l'adresse **https://petitbonbon.github.io/petit-bonbon/** (1 à 2 minutes après).
 
 ### 2. Créer la base Supabase (5 min)
 1. Sur [supabase.com](https://supabase.com), **New project**. Région : **Europe** (ou un pays de l’UE). Note le mot de passe de la base quelque part.
@@ -21,7 +21,7 @@ L'app sera en ligne à l'adresse **https://ciapy.github.io/petit-bonbon/** (1 à
 3. **Authentication** › **Sign In / Providers** : active **Allow anonymous sign-ins** et enregistre.
    *Pourquoi :* Petit Bonbon s'utilise sans compte. Chaque appareil reçoit un identifiant anonyme invisible, qui suffit pour les bonbons, les blocages, les signalements et le paiement. Un vrai compte (e-mail) ne servira que pour le futur Premium.
    *Conseillé ensuite :* **Authentication › Attack Protection** › active une protection CAPTCHA (Cloudflare Turnstile, gratuit) pour limiter la création d'identifiants en masse.
-4. **Authentication** › **URL Configuration** : *Site URL* = `https://ciapy.github.io/petit-bonbon/`, et ajoute la même adresse dans *Redirect URLs*.
+4. **Authentication** › **URL Configuration** : *Site URL* = `https://petitbonbon.github.io/petit-bonbon/`, et ajoute la même adresse dans *Redirect URLs*.
 5. **Project Settings** › **API** : copie **Project URL** et la clé **anon public** dans `config.js`.
    ⚠️ Ne mets **jamais** la clé `service_role` dans `config.js` : ce fichier est public.
 
@@ -31,7 +31,7 @@ L'app sera en ligne à l'adresse **https://ciapy.github.io/petit-bonbon/** (1 à
 1. Crée ton compte sur [stripe.com](https://stripe.com) et complète la vérification d'identité.
 2. **Catalogue de produits** › **Ajouter un produit** : « Accès Petit Bonbon », **0,99 €**, paiement **unique**.
 3. **Liens de paiement** › **Nouveau** › ce produit. Dans les options :
-   - *Après le paiement* › **Ne pas afficher de page de confirmation, rediriger vers votre site** : `https://ciapy.github.io/petit-bonbon/?paid=1`
+   - *Après le paiement* › **Ne pas afficher de page de confirmation, rediriger vers votre site** : `https://petitbonbon.github.io/petit-bonbon/?paid=1`
    - **Exiger que les clients acceptent vos conditions d'utilisation** (renseigne l'adresse de `cgu.html` dans les paramètres publics Stripe), et ajoute ce texte personnalisé :
      *« Je demande l'activation immédiate de mon accès et je renonce à mon droit de rétractation. »*
 4. Copie le lien (`https://buy.stripe.com/…`) dans `config.js` › `STRIPE_PAYMENT_LINK`.
