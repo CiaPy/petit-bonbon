@@ -11,17 +11,17 @@ const sb = CONFIGURED ? createClient(C.SUPABASE_URL, C.SUPABASE_ANON_KEY) : null
 
 // L'ordre compte : la base stocke l'indice (0 à 11). Ne pas réordonner, seulement ajouter à la fin (max 12).
 const COMPLIMENTS = [
-  'Ton énergie se voit de loin.',
-  'Tu as l’air de quelqu’un avec qui on rit bien.',
+  'Ton énergie se ressent jusqu’ici.',
+  'Ton pseudo m’a fait sourire.',
   'Ta façon de te présenter m’a fait sourire.',
   'Merci d’être là ce soir.',
   'Ton humeur du jour est contagieuse.',
   'Tu donnes envie de passer une bonne soirée.',
-  'Ton style te va très bien.',
-  'Tu as l’air d’une belle personne.',
+  'J’aime ta façon d’être là, simplement.',
+  'Je te souhaite une très belle journée.',
   'Ta phrase du jour m’a fait du bien.',
   'Je suis content·e de te croiser ici.',
-  'Garde ce sourire, il est précieux.',
+  'Garde cette bonne humeur, elle est précieuse.',
   'Tu rends cette ville plus douce.',
 ];
 // Doit correspondre à la liste « allowed » de start_session dans schema.sql
@@ -575,7 +575,6 @@ V.tab_inbox = () => {
       ${m.has_voice && m.status !== 'reported' ? (m.voice_heard
         ? '<span class="small">🎙 Note vocale écoutée (elle n’existe plus)</span>'
         : `<button class="btn small dark" style="align-self:flex-start" data-a="playVoice" data-id="${esc(m.id)}" ${S.playing ? 'disabled' : ''}>${S.playing === m.id ? '🎙 Lecture en cours…' : '🎙 Écouter la note vocale · une seule fois'}</button>`) : ''}
-      ${m.effect ? `<button class="link" style="align-self:flex-start;font-size:14px" data-a="replayEffect" data-e="${m.effect}">✨ Rejouer l’animation</button>` : ''}
       ${m.status !== 'reported' ? `<div class="row">
           ${m.can_reply ? `<button class="btn small" data-a="replyBonbon" data-id="${esc(m.id)}">Renvoyer un bonbon</button>` : ''}
           ${m.status === 'open' ? `<button class="btn small soft" data-a="thank" data-id="${esc(m.id)}">Dire merci</button>` : ''}
@@ -1115,7 +1114,6 @@ const A = {
   refresh() { S.cardMenu = null; S.peopleLoaded = false; render(); loadData(); },
   pickTarget(d) { dropVoiceNow(); S.target = S.people[+d.i]; S.pick = 0; S.custom = ''; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0); },
   pick(d) { S.pick = +d.i; render(); },
-  replayEffect(d) { playEffect(+d.e); },
   recVoice() { startRecording(); },
   stopVoice() { stopRecording(); },
   dropVoice() { dropVoiceNow(); render(); },
