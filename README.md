@@ -102,6 +102,9 @@ update app_settings set daily_send_limit = 15;
 -- Nombre de personnes nécessaires dans une ville pour ouvrir « Découvrir » (2 par défaut)
 update app_settings set min_city_people = 2;
 
+-- Bonbons par jour pour les abonnés Premium (25 par défaut)
+update app_settings set premium_daily_limit = 25;
+
 -- « Autour de toi » ne montre que les personnes qui ont l'app ouverte depuis moins de N minutes (3 par défaut)
 update app_settings set presence_minutes = 3;
 
@@ -148,8 +151,8 @@ supabase/functions/stripe-webhook/index.ts   déblocage après paiement
 
 ## Feuille de route Premium (pas encore développé)
 
-**Premium v1 (en place)** : mots personnalisés filtrés, avatars pixel, thèmes de couleur, tarif réduit aux rencontres.
-**Premium v2 (à venir)** : note vocale, photo éphémère, musique, lien, discussion libre.
+**Premium v1 (en place)** : mots personnalisés filtrés, bonbons animés (cœurs, étoiles, confettis), 25 bonbons par jour, 12 phrases et 6 humeurs en plus (2 humeurs à la fois), bio de 160 caractères, avatars pixel, thèmes de couleur, tarif réduit aux rencontres.
+**Premium v2 (à venir)** : note vocale (15 s, écoutable une fois), photo éphémère, discussion libre.
 
 **Discussion libre (Premium)** : prolongement des petits échanges à phrases toutes faites. Ne s'ouvre que si les **deux** personnes l'acceptent explicitement, uniquement entre abonnés. Filtre automatique (contacts, liens, insultes, contenus sexuels) avant réception, signalement en un geste, file de modération humaine. Aucun lien ni numéro autorisé, même en Premium.
 

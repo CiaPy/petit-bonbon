@@ -26,6 +26,8 @@ const COMPLIMENTS = [
 ];
 // Doit correspondre à la liste « allowed » de start_session dans schema.sql
 const MOODS = ['Joyeux·se', 'Rêveur·se', 'Curieux·se', 'Calme', 'Timide', 'Triste', 'Pas dans mon assiette'];
+// Humeurs en plus pour Premium (doit correspondre à premium_moods dans schema.sql)
+const MOODS_PREMIUM = ['Inspiré·e', 'Nostalgique', 'Zen', 'Gourmand·e', 'Fêtard·e', 'Aventurier·ère'];
 const CITIES = ['Paris', 'Marseille', 'Lyon', 'Toulouse', 'Nice', 'Nantes', 'Montpellier', 'Strasbourg', 'Bordeaux', 'Lille', 'Rennes', 'Reims', 'Toulon', 'Saint-Étienne', 'Le Havre', 'Grenoble', 'Dijon', 'Angers', 'Nîmes', 'Clermont-Ferrand', 'Orléans', 'Tours', 'Brest', 'Limoges', 'Amiens', 'Metz', 'Perpignan', 'Besançon', 'Caen', 'Rouen', 'Nancy', 'Avignon', 'La Rochelle', 'Poitiers', 'Pau', 'Bayonne', 'Annecy', 'Bruxelles', 'Genève', 'Lausanne', 'Montréal'];
 // Phrases de la mini-conversation. L'ordre compte (la base stocke le numéro, 30 max) :
 // ne jamais réordonner, seulement ajouter à la fin.
@@ -42,18 +44,39 @@ const PHRASES = [
   'Prends soin de toi.',
   'C’était doux, merci.',
   'À une prochaine, peut-être !',
+  // 12 à 23 : phrases Premium
+  'Tu as illuminé ma journée ✨',
+  'Quelle belle énergie !',
+  'J’aime beaucoup ton humeur du jour.',
+  'On se croise peut-être sans le savoir.',
+  'Ta ville a de la chance.',
+  'Tu as un joli pseudo.',
+  'Raconte-moi un truc qui t’a fait rire.',
+  'Ton coin préféré dans la ville ?',
+  'Un bon café dans le coin ?',
+  'J’espère que ta journée est douce.',
+  'Courage pour la suite !',
+  'Un dernier bonbon pour la route 🍬',
 ];
+const PHRASES_FREE = 12; // les phrases à partir de cet indice sont réservées à Premium
+// Bonbons animés (Premium) : l'indice est stocké en base (0 à 3)
+const EFFECTS = ['Sans animation', 'Pluie de cœurs', 'Étoiles', 'Confettis'];
 const REASONS = ['Message ou profil déplacé', 'Contenu sexuel', 'Je pense que c’est un·e mineur·e', 'Insistance ou harcèlement', 'Autre chose me met mal à l’aise'];
 // Options réservées à l'abonnement Premium (pas encore disponibles)
 const PREMIUM_PRICE = '2,99 € / mois';
 const PREMIUM_FEATURES = [
   { short: 'Mon propre mot', long: 'Écrire tes propres mots (filtrés, 140 caractères)' },
+  { short: 'Bonbons animés', long: 'Des bonbons qui s’ouvrent en cœurs, étoiles ou confettis' },
+  { short: 'Plus de bonbons', long: '25 bonbons à offrir par jour au lieu de 10' },
+  { short: 'Plus de mots', long: '12 petites phrases en plus dans les échanges' },
+  { short: 'Plus d’humeurs', long: '6 humeurs en plus, et 2 humeurs à la fois' },
+  { short: 'Bio plus longue', long: 'Tes quelques mots sur 160 caractères' },
   { short: 'Avatar pixel', long: 'Un avatar en pixel art sur ton identité du jour' },
   { short: 'Thèmes', long: 'Des thèmes de couleur pour ton app' },
   { short: 'Rencontres', long: 'Tarif réduit aux rencontres live, dès qu’elles commencent' },
 ];
-const PREMIUM_SOON = 'Bientôt aussi : notes vocales, photos éphémères, musique et discussion libre.';
-const LOCKED_CHIPS = ['Mon propre mot', 'Note vocale', 'Photo', 'Musique', 'Lien'];
+const PREMIUM_SOON = 'Bientôt aussi : notes vocales et photos éphémères.';
+const LOCKED_CHIPS = ['Mon propre mot', 'Bonbon animé', 'Note vocale', 'Photo'];
 
 // Avatars en pixel art (Premium). a = couleur, b = clair, c = foncé, w = blanc
 const PIXEL_AVATARS = [
@@ -396,6 +419,10 @@ V.identity = () => {
     <div class="stack" style="gap:10px">
       <span class="label">Ton humeur</span>
       <div class="chips">${MOODS.map((m) => `<button type="button" class="chip" data-a="mood" data-mood="${esc(m)}" aria-pressed="${f.moods.includes(m)}">${esc(m)}</button>`).join('')}</div>
+      <span class="label" style="margin-top:4px">${isPremium() ? 'Humeurs Premium · jusqu’à 2 humeurs' : 'Avec Premium'}</span>
+      <div class="chips">${MOODS_PREMIUM.map((m) => isPremium()
+        ? `<button type="button" class="chip" data-a="mood" data-mood="${esc(m)}" aria-pressed="${f.moods.includes(m)}">${esc(m)}</button>`
+        : `<button type="button" class="chip locked" data-a="openPremium">${ICON.lockSmall}${esc(m)}</button>`).join('')}</div>
     </div>
     <div class="field"><label for="city">Ta ville</label>
       <input id="city" name="city" list="cities" maxlength="60" required value="${esc(f.city)}" placeholder="Ex. : Orléans" data-bind="city" autocomplete="address-level2"></div>
@@ -490,6 +517,10 @@ V.tab_send = () => {
           : `<div class="field"><label for="custom">Ou écris ton propre mot <span style="color:var(--pink-deep)">· Premium</span></label>
               <textarea id="custom" name="custom" rows="3" maxlength="140" placeholder="Il remplace le compliment choisi au-dessus">${esc(S.custom)}</textarea>
               <span class="small">140 caractères. Bienveillant, sans numéro, réseau social ni lien : il est vérifié avant d’arriver.</span></div>`)
+        + `<div class="stack" style="gap:10px">
+              <span class="label" style="padding:0 4px">Animation à l’ouverture <span style="color:var(--pink-deep)">· Premium</span></span>
+              <div class="chips">${EFFECTS.map((e, i) => `<button type="button" class="chip" aria-pressed="${(S.effect || 0) === i}" data-a="pickEffect" data-i="${i}">${esc(e)}</button>`).join('')}</div>
+            </div>`
       : `<div class="stack" style="gap:10px">
       <span class="label" style="padding:0 4px">Avec Premium</span>
       <div class="chips">${LOCKED_CHIPS.map((f) => `<button type="button" class="chip locked" data-a="openPremium">${ICON.lockSmall}${esc(f)}</button>`).join('')}</div>
@@ -514,6 +545,7 @@ V.tab_inbox = () => {
       <span class="context">${m.local ? 'Vous êtes dans la même ville, mais vous ne vous connaissez pas.' : `Un inconnu de passage à ${esc(city)}, venu de ${esc(m.sender_home_city)}.`}</span>
       <p class="quote">« ${esc(m.custom_text || COMPLIMENTS[m.compliment_id] || '')} »</p>
       <span class="small">— ${esc(m.sender_pseudo)} · ${timeAgo(m.created_at)}${m.is_reply ? ' · <strong>en réponse à ton bonbon</strong>' : ''}${m.custom_text ? ' · mot personnalisé' : ''}</span>
+      ${m.effect ? `<button class="link" style="align-self:flex-start;font-size:14px" data-a="replayEffect" data-e="${m.effect}">✨ Rejouer l’animation</button>` : ''}
       ${m.status !== 'reported' ? `<div class="row">
           ${m.can_reply ? `<button class="btn small" data-a="replyBonbon" data-id="${esc(m.id)}">Renvoyer un bonbon</button>` : ''}
           ${m.status === 'open' ? `<button class="btn small soft" data-a="thank" data-id="${esc(m.id)}">Dire merci</button>` : ''}
@@ -551,7 +583,9 @@ V.tab_chat = () => {
     </div>
     <div class="bubbles" id="bubbles">${msgs}</div>
     <div class="phrases" role="group" aria-label="Choisis un petit mot">
-      ${PHRASES.map((ph, i) => `<button type="button" class="chip" data-a="sendPhrase" data-i="${i}">${esc(ph)}</button>`).join('')}
+      ${PHRASES.map((ph, i) => (i < PHRASES_FREE || isPremium()
+        ? `<button type="button" class="chip" data-a="sendPhrase" data-i="${i}">${esc(ph)}</button>`
+        : `<button type="button" class="chip locked" data-a="openPremium">${ICON.lockSmall}${esc(ph)}</button>`)).join('')}
     </div>
   </div>`;
 };
@@ -566,8 +600,8 @@ V.tab_me = () => {
       <span class="small">${s.moods && s.moods.length ? esc(s.moods.join(' · ')) : 'Pas d’humeur affichée'}</span>
       ${S.editBio ? `<form class="stack" style="gap:10px;margin-top:6px" data-f="bio">
           <div class="field"><label for="bio">Quelques mots sur toi</label>
-            <textarea id="bio" name="bio" rows="2" maxlength="80" placeholder="Ex. : je cherche le meilleur croissant du quartier">${esc(s.bio || '')}</textarea>
-            <span class="small">80 caractères. Pas de numéro, de réseau social ni de lien.</span></div>
+            <textarea id="bio" name="bio" rows="${isPremium() ? 3 : 2}" maxlength="${isPremium() ? 160 : 80}" placeholder="Ex. : je cherche le meilleur croissant du quartier">${esc(s.bio || '')}</textarea>
+            <span class="small">${isPremium() ? '160' : '80'} caractères. Pas de numéro, de réseau social ni de lien.${isPremium() ? '' : ' <button type="button" class="link" style="font-size:inherit;padding:0;min-height:0" data-a="openPremium">160 avec Premium</button>'}</span></div>
           ${errorBox()}
           <div class="row"><button class="btn small" type="submit" ${S.busy ? 'disabled' : ''}>Enregistrer</button><button class="link muted" type="button" data-a="cancelBio">Annuler</button></div>
         </form>`
@@ -587,7 +621,7 @@ V.tab_me = () => {
     </div>
     ${isPremium() ? V.premiumCard() : `<div class="premium">
       <span class="kicker">PREMIUM · ${PREMIUM_PRICE}</span>
-      <h3>Tes propres mots, ton avatar pixel, tes couleurs</h3>
+      <h3>Tes propres mots, des bonbons animés, plus de bonbons chaque jour</h3>
       <p>L’app de base reste gratuite. ${esc(PREMIUM_SOON)}</p>
       <button class="btn small" style="align-self:flex-start" data-a="openPremium">Découvrir</button>
     </div>`}
@@ -721,6 +755,7 @@ function render() {
   }
   $app.innerHTML = fn();
   lastView = S.view;
+  if (S.view === 'main' && S.tab === 'inbox') playNewEffects();
   Object.keys(keep).forEach((name) => {
     const el = $app.querySelector(`[name="${name}"]`);
     if (!el || el.dataset.bind) return; // les champs liés à S.form ont déjà la bonne valeur
@@ -787,6 +822,81 @@ function noteInbox(list) {
   }
   S.seenInbox = ids;
   S.inbox = list;
+}
+
+// ---------- Bonbons animés (Premium) -----------------------------------
+// Des petites formes en pixel art qui jaillissent à l'ouverture d'un bonbon.
+const FX_SHAPES = {
+  heart: ['.##.##.', '#######', '#######', '.#####.', '..###..', '...#...'],
+  star: ['..#..', '..#..', '#####', '.###.', '.#.#.'],
+  dot: ['##', '##'],
+};
+const FX_COLORS = {
+  1: ['#FF9EC4', '#F07DAA', '#B0245A', '#FFE0EC'],
+  2: ['#FFC93C', '#F5A623', '#FF9EC4', '#E8B400'],
+  3: ['#FF9EC4', '#C6F1DF', '#FFF1A8', '#ECE4FF', '#FFE3CC', '#9EDCC3'],
+};
+const fxSvg = (shape, color, size) => {
+  const g = FX_SHAPES[shape], w = g[0].length, h = g.length;
+  let r = '';
+  g.forEach((row, y) => [...row].forEach((c, x) => { if (c === '#') r += `<rect x="${x}" y="${y}" width="1.02" height="1.02"/>`; }));
+  return `<svg width="${size}" height="${Math.round(size * h / w)}" viewBox="0 0 ${w} ${h}" fill="${color}" shape-rendering="crispEdges" aria-hidden="true">${r}</svg>`;
+};
+function playEffect(effect) {
+  if (!effect || !FX_COLORS[effect] || !document.body.animate) return;
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const layer = document.createElement('div');
+  layer.className = 'fx-layer';
+  document.body.appendChild(layer);
+  const W = window.innerWidth, H = window.innerHeight;
+  const shape = effect === 1 ? 'heart' : effect === 2 ? 'star' : 'dot';
+  const colors = FX_COLORS[effect];
+  const n = reduce ? 1 : (effect === 3 ? 46 : 26);
+  let done = 0;
+  for (let i = 0; i < n; i++) {
+    const el = document.createElement('div');
+    el.className = 'fx-bit';
+    const size = reduce ? 64 : (effect === 3 ? 8 + Math.random() * 6 : 16 + Math.random() * 18);
+    el.innerHTML = fxSvg(shape, colors[i % colors.length], size);
+    layer.appendChild(el);
+    let frames, opts;
+    if (reduce) {
+      el.style.left = `${W / 2 - 32}px`; el.style.top = `${H / 2 - 32}px`;
+      frames = [{ opacity: 0, transform: 'scale(.8)' }, { opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(1)' }];
+      opts = { duration: 1200, easing: 'ease-out' };
+    } else if (effect === 3) {
+      // confettis : tombent du haut en tournoyant
+      const x = Math.random() * W, drift = (Math.random() - 0.5) * 160, rot = (Math.random() - 0.5) * 900;
+      el.style.left = `${x}px`; el.style.top = '-20px';
+      frames = [{ transform: 'translate(0,0) rotate(0deg)', opacity: 1 },
+                { transform: `translate(${drift}px, ${H * 0.7}px) rotate(${rot}deg)`, opacity: 1, offset: 0.8 },
+                { transform: `translate(${drift * 1.2}px, ${H + 40}px) rotate(${rot * 1.2}deg)`, opacity: 0 }];
+      opts = { duration: 1800 + Math.random() * 1200, delay: Math.random() * 400, easing: 'cubic-bezier(.25,.6,.4,1)' };
+    } else {
+      // cœurs et étoiles : jaillissent du centre, puis s'envolent ou retombent
+      const a = Math.random() * Math.PI * 2, d = 90 + Math.random() * Math.min(W, H) * 0.35;
+      const dx = Math.cos(a) * d, dy = Math.sin(a) * d * 0.8;
+      const end = effect === 1 ? -H * 0.35 - Math.random() * 120 : 140 + Math.random() * 120;
+      el.style.left = `${W / 2 - size / 2}px`; el.style.top = `${H * 0.45}px`;
+      frames = [{ transform: 'translate(0,0) scale(.2)', opacity: 0 },
+                { transform: `translate(${dx}px, ${dy}px) scale(1)`, opacity: 1, offset: 0.35 },
+                { transform: `translate(${dx * 1.15}px, ${dy + end}px) scale(${effect === 2 ? 0.5 : 0.9})`, opacity: 0 }];
+      opts = { duration: 1700 + Math.random() * 900, delay: Math.random() * 250, easing: 'cubic-bezier(.2,.7,.3,1)' };
+    }
+    const anim = el.animate(frames, { ...opts, fill: 'both' });
+    anim.onfinish = () => { if (++done >= n) layer.remove(); };
+  }
+  setTimeout(() => layer.remove(), 5000); // filet de sécurité
+}
+// Joue l'animation d'un bonbon reçu la première fois qu'on ouvre « Reçus »
+function playNewEffects() {
+  let played = [];
+  try { played = JSON.parse(localStorage.getItem('pb_fx_played') || '[]'); } catch (_) {}
+  const todo = (S.inbox || []).filter((m) => m.effect && m.status !== 'reported' && !played.includes(m.id));
+  if (!todo.length) return;
+  played = played.concat(todo.map((m) => m.id)).slice(-200);
+  try { localStorage.setItem('pb_fx_played', JSON.stringify(played)); } catch (_) {}
+  setTimeout(() => playEffect(todo[0].effect), 250);
 }
 
 function noteConvs(list) {
@@ -856,7 +966,9 @@ const A = {
   },
   mood(d) {
     const m = d.mood;
-    S.form.moods = S.form.moods.includes(m) ? [] : [m];   // une seule humeur
+    if (S.form.moods.includes(m)) S.form.moods = S.form.moods.filter((x) => x !== m);
+    else if (isPremium()) S.form.moods = S.form.moods.concat(m).slice(-2);   // Premium : 2 humeurs
+    else S.form.moods = [m];                                                  // gratuit : une seule
     render();
   },
   tab(d) {
@@ -869,6 +981,8 @@ const A = {
   refresh() { S.cardMenu = null; S.peopleLoaded = false; render(); loadData(); },
   pickTarget(d) { S.target = S.people[+d.i]; S.pick = 0; S.custom = ''; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0); },
   pick(d) { S.pick = +d.i; render(); },
+  replayEffect(d) { playEffect(+d.e); },
+  pickEffect(d) { S.effect = +d.i; render(); if (S.effect) playEffect(S.effect); },
   replyBonbon(d) {
     const m = S.inbox.find((x) => x.id === d.id); if (!m) return;
     S.target = { pseudo: m.sender_pseudo, local: m.local, home_city: m.sender_home_city, reply_id: m.id };
@@ -893,8 +1007,10 @@ const A = {
     S.busy = true; S.error = ''; render();
     try {
       const custom = isPremium() && S.custom.trim() ? S.custom.trim() : null;
-      if (S.target.reply_id) await rpc('reply_bonbon', { p_bonbon_id: S.target.reply_id, p_compliment: S.pick, p_custom: custom });
-      else await rpc('send_bonbon', { p_session_id: S.target.session_id, p_compliment: S.pick, p_custom: custom });
+      const effect = isPremium() ? (S.effect || 0) : 0;
+      if (S.target.reply_id) await rpc('reply_bonbon', { p_bonbon_id: S.target.reply_id, p_compliment: S.pick, p_custom: custom, p_effect: effect });
+      else await rpc('send_bonbon', { p_session_id: S.target.session_id, p_compliment: S.pick, p_custom: custom, p_effect: effect });
+      if (effect) setTimeout(() => playEffect(effect), 150);
       S.lastSentText = custom || COMPLIMENTS[S.pick];
       S.custom = '';
       S.status.sent_today += 1;
@@ -1083,7 +1199,7 @@ const F = {
     if (!f.city.trim()) { S.error = 'Indique la ville où tu te trouves.'; return render(); }
     S.busy = true; S.error = ''; render();
     try {
-      S.status = await rpc('start_session', { p_pseudo: f.pseudo, p_moods: f.moods.slice(0, 1), p_bio: '', p_current_city: f.city, p_home_city: '' });
+      S.status = await rpc('start_session', { p_pseudo: f.pseudo, p_moods: f.moods.filter((m) => isPremium() || MOODS.includes(m)).slice(0, isPremium() ? 2 : 1), p_bio: '', p_current_city: f.city, p_home_city: '' });
       try { localStorage.setItem('pb_city', f.city); } catch (_) {}
       S.busy = false; S.view = 'main'; S.tab = 'discover'; S.peopleLoaded = false; S.seenInbox = null;
       render(); loadData();

@@ -37,7 +37,7 @@ create table if not exists public.sessions (
   user_id       uuid not null unique references public.profiles(id) on delete cascade,
   pseudo        text not null check (char_length(pseudo) between 1 and 20),
   moods         text[] not null default '{}' check (cardinality(moods) <= 3),
-  bio           text check (bio is null or char_length(bio) <= 80),
+  bio           text check (bio is null or char_length(bio) <= 160),
   current_city  text not null check (char_length(current_city) between 1 and 60),
   home_city     text not null check (char_length(home_city) between 1 and 60),
   created_at    timestamptz not null default now(),
@@ -51,6 +51,18 @@ create table if not exists public.sessions (
 alter table public.sessions add column if not exists last_seen_at timestamptz not null default now();
 create index if not exists sessions_seen_idx on public.sessions (last_seen_at);
 alter table public.app_settings add column if not exists presence_minutes int not null default 3;
+
+-- ---------- Options Premium v1.1 ---------------------------------------
+alter table public.app_settings add column if not exists premium_daily_limit int not null default 25; -- bonbons par 24 h pour les abonnés
+-- Bio : 80 caractères en gratuit, 160 en Premium (la limite fine est dans update_bio)
+do $$ begin
+  if exists (select 1 from pg_constraint where conname = 'sessions_bio_check') then
+    alter table public.sessions drop constraint sessions_bio_check;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'sessions_bio_len') then
+    alter table public.sessions add constraint sessions_bio_len check (bio is null or char_length(bio) <= 160);
+  end if;
+end $$;
 
 -- ---------- Bonbons (compliments envoyés) --------------------------------
 create table if not exists public.bonbons (
@@ -117,6 +129,8 @@ end $$;
 -- Un bonbon peut être « renvoyé » en réponse à un autre (une fois par bonbon reçu)
 alter table public.bonbons add column if not exists reply_to uuid references public.bonbons(id) on delete set null;
 create index if not exists bonbons_reply_idx on public.bonbons (reply_to);
+-- Bonbon animé (Premium) : 0 = aucun, 1 = cœurs, 2 = étoiles, 3 = confettis
+alter table public.bonbons add column if not exists effect int not null default 0 check (effect between 0 and 3);
 
 -- Mini-conversation : uniquement des phrases choisies dans une liste (phrase_id)
 create table if not exists public.messages (
@@ -226,6 +240,13 @@ returns boolean language sql stable security definer set search_path = public as
   select coalesce((select sub_status in ('active', 'trialing') from public.profiles where id = uid), false)
 $$;
 
+-- Nombre de bonbons par 24 h : plus élevé pour les abonnés Premium
+create or replace function public.daily_limit_for(uid uuid)
+returns int language sql stable security definer set search_path = public as $$
+  select case when public.is_premium(uid) then st.premium_daily_limit else st.daily_send_limit end
+  from public.app_settings st where st.id = 1
+$$;
+
 -- Vérifie un mot personnalisé. Renvoie le texte nettoyé, ou lève une erreur.
 create or replace function public.check_custom(uid uuid, p_custom text, recipient uuid)
 returns text language plpgsql stable security definer set search_path = public as $$
@@ -262,7 +283,7 @@ begin
     'sub_status',     p.sub_status,
     'sub_period_end', p.sub_period_end,
     'sub_cancel_at_end', p.sub_cancel_at_end,
-    'daily_limit',    st.daily_send_limit,
+    'daily_limit',    public.daily_limit_for(uid),
     'sent_today',     (select count(*) from public.bonbons
                         where sender_id = uid and created_at > now() - interval '24 hours'),
     'city_ready', coalesce((select public.city_ready(current_city) from public.sessions
@@ -291,10 +312,17 @@ returns json language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); problem text;
   allowed text[] := array['Joyeux·se','Rêveur·se','Curieux·se','Calme','De passage','Fatigué·e mais là',
                           'Bavard·e','Timide','En balade','Triste','Pas dans mon assiette'];
+  -- Humeurs en plus pour Premium (doit correspondre à MOODS_PREMIUM dans app.js)
+  premium_moods text[] := array['Inspiré·e','Nostalgique','Zen','Gourmand·e','Fêtard·e','Aventurier·ère'];
 begin
   problem := public.access_problem(uid);
   if problem is not null then raise exception '%', problem; end if;
-  if not (coalesce(p_moods, '{}') <@ allowed) then raise exception 'BAD_MOOD'; end if;
+  if not (coalesce(p_moods, '{}') <@ (allowed || premium_moods)) then raise exception 'BAD_MOOD'; end if;
+  -- Gratuit : 1 humeur de la liste de base. Premium : jusqu'à 2, dont les humeurs en plus.
+  if not public.is_premium(uid)
+     and (cardinality(coalesce(p_moods, '{}')) > 1 or coalesce(p_moods, '{}') && premium_moods)
+  then raise exception 'PREMIUM'; end if;
+  if cardinality(coalesce(p_moods, '{}')) > 2 then raise exception 'BAD_MOOD'; end if;
   if public.text_problem(p_pseudo) or public.text_problem(p_bio)
      or public.text_problem(p_current_city, false) or public.text_problem(p_home_city, false)
   then raise exception 'BAD_TEXT'; end if;
@@ -353,7 +381,8 @@ begin
 end $$;
 
 drop function if exists public.send_bonbon(uuid, int);
-create or replace function public.send_bonbon(p_session_id uuid, p_compliment int, p_custom text default null)
+drop function if exists public.send_bonbon(uuid, int, text);
+create or replace function public.send_bonbon(p_session_id uuid, p_compliment int, p_custom text default null, p_effect int default 0)
 returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); problem text;
   me public.sessions%rowtype; them public.sessions%rowtype; tp public.profiles%rowtype;
@@ -373,7 +402,7 @@ begin
      or public.blocked_between(uid, them.user_id)
   then raise exception 'GONE'; end if;
 
-  select daily_send_limit into lim from public.app_settings where id = 1;
+  lim := public.daily_limit_for(uid);
   if (select count(*) from public.bonbons
       where sender_id = uid and created_at > now() - interval '24 hours') >= lim
   then raise exception 'LIMIT'; end if;
@@ -390,9 +419,10 @@ begin
   txt := public.check_custom(uid, p_custom, them.user_id);
   if txt is null and (p_compliment is null or p_compliment not between 0 and 11) then raise exception 'GONE'; end if;
   insert into public.bonbons (sender_id, recipient_id, sender_pseudo, sender_home_city,
-                              sender_current_city, recipient_pseudo, compliment_id, custom_text)
+                              sender_current_city, recipient_pseudo, compliment_id, custom_text, effect)
   values (uid, them.user_id, me.pseudo, me.home_city, me.current_city, them.pseudo,
-          case when txt is null then p_compliment end, txt);
+          case when txt is null then p_compliment end, txt,
+          case when public.is_premium(uid) and p_effect between 0 and 3 then p_effect else 0 end);
 end $$;
 
 -- Bonbons reçus (30 derniers jours)
@@ -400,7 +430,7 @@ drop function if exists public.inbox();
 create or replace function public.inbox()
 returns table (id uuid, sender_pseudo text, sender_home_city text, local boolean,
                compliment_id int, status text, created_at timestamptz,
-               is_reply boolean, replied boolean, can_reply boolean, custom_text text)
+               is_reply boolean, replied boolean, can_reply boolean, custom_text text, effect int)
 language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid();
 begin
@@ -415,7 +445,7 @@ begin
           and b.created_at > now() - interval '24 hours'
           and not exists (select 1 from public.bonbons r where r.reply_to = b.id)
           and not public.blocked_between(uid, b.sender_id)),
-         b.custom_text
+         b.custom_text, b.effect
   from public.bonbons b
   where b.recipient_id = uid
     and b.created_at > now() - interval '30 days'
@@ -428,7 +458,8 @@ end $$;
 
 -- Renvoyer un bonbon en réponse à un bonbon reçu (une seule fois, dans les 24 h)
 drop function if exists public.reply_bonbon(uuid, int);
-create or replace function public.reply_bonbon(p_bonbon_id uuid, p_compliment int, p_custom text default null)
+drop function if exists public.reply_bonbon(uuid, int, text);
+create or replace function public.reply_bonbon(p_bonbon_id uuid, p_compliment int, p_custom text default null, p_effect int default 0)
 returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); problem text; me public.sessions%rowtype;
   orig public.bonbons%rowtype; tp public.profiles%rowtype; lim int; txt text;
@@ -443,16 +474,17 @@ begin
   select * into tp from public.profiles where id = orig.sender_id;
   if tp.banned or not tp.receive_on or public.blocked_between(uid, orig.sender_id) then raise exception 'GONE'; end if;
   if exists (select 1 from public.bonbons where reply_to = orig.id) then raise exception 'ALREADY'; end if;
-  select daily_send_limit into lim from public.app_settings where id = 1;
+  lim := public.daily_limit_for(uid);
   if (select count(*) from public.bonbons
       where sender_id = uid and created_at > now() - interval '24 hours') >= lim
   then raise exception 'LIMIT'; end if;
   txt := public.check_custom(uid, p_custom, orig.sender_id);
   if txt is null and (p_compliment is null or p_compliment not between 0 and 11) then raise exception 'GONE'; end if;
   insert into public.bonbons (sender_id, recipient_id, sender_pseudo, sender_home_city,
-                              sender_current_city, recipient_pseudo, compliment_id, custom_text, reply_to)
+                              sender_current_city, recipient_pseudo, compliment_id, custom_text, reply_to, effect)
   values (uid, orig.sender_id, me.pseudo, me.home_city, me.current_city, orig.sender_pseudo,
-          case when txt is null then p_compliment end, txt, orig.id);
+          case when txt is null then p_compliment end, txt, orig.id,
+          case when public.is_premium(uid) and p_effect between 0 and 3 then p_effect else 0 end);
 end $$;
 
 -- Une mini-conversation est ouverte entre deux personnes quand :
@@ -526,6 +558,7 @@ begin
   problem := public.access_problem(uid);
   if problem is not null then raise exception '%', problem; end if;
   if p_phrase is null or p_phrase not between 0 and 29 then raise exception 'GONE'; end if;
+  if p_phrase >= 12 and not public.is_premium(uid) then raise exception 'PREMIUM'; end if;
   select * into them from public.sessions where id = p_session_id and expires_at > now();
   if not found or them.user_id = uid or not public.chat_open(uid, them.user_id) then raise exception 'GONE'; end if;
   if exists (select 1 from public.messages where sender_id = uid and recipient_id = them.user_id
@@ -590,7 +623,7 @@ returns json language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); b text := nullif(trim(coalesce(p_bio, '')), '');
 begin
   if uid is null then raise exception 'AUTH'; end if;
-  if b is not null and char_length(b) > 80 then raise exception 'BAD_TEXT'; end if;
+  if b is not null and char_length(b) > (case when public.is_premium(uid) then 160 else 80 end) then raise exception 'BAD_TEXT'; end if;
   if public.text_problem(b) then raise exception 'BAD_TEXT'; end if;
   update public.sessions set bio = b where user_id = uid and expires_at > now();
   if not found then raise exception 'NO_SESSION'; end if;
@@ -713,13 +746,13 @@ revoke execute on all functions in schema public from public, anon;
 grant execute on function
   public.my_status(), public.confirm_adult(),
   public.start_session(text, text[], text, text, text), public.end_session(),
-  public.discover(), public.send_bonbon(uuid, int, text),
+  public.discover(), public.send_bonbon(uuid, int, text, int),
   public.inbox(), public.sent(), public.thank_bonbon(uuid),
   public.report(text, uuid, uuid), public.block_only(uuid, uuid), public.update_bio(text), public.update_settings(boolean, boolean, boolean),
-  public.set_avatar(int), public.my_premium_code(), public.restore_premium(text), public.reply_bonbon(uuid, int, text), public.conversations(), public.thread(uuid), public.send_phrase(uuid, int),
+  public.set_avatar(int), public.my_premium_code(), public.restore_premium(text), public.reply_bonbon(uuid, int, text, int), public.conversations(), public.thread(uuid), public.send_phrase(uuid, int),
   public.delete_account()
 to authenticated;
-revoke execute on function public.text_problem(text, boolean), public.city_ready(text), public.chat_open(uuid, uuid),
+revoke execute on function public.text_problem(text, boolean), public.city_ready(text), public.chat_open(uuid, uuid), public.daily_limit_for(uuid),
   public.is_premium(uuid), public.check_custom(uuid, text, uuid), public.new_recovery_code() from authenticated;
 revoke execute on function public.handle_new_user(), public.access_problem(uuid),
   public.blocked_between(uuid, uuid) from authenticated;

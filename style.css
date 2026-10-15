@@ -148,6 +148,11 @@ h3 { font-size: 13px; line-height: 1.6; }
 .badge { display: inline-flex; align-items: center; min-height: 26px; padding: 2px 8px; margin: var(--px); font-size: 14px; font-weight: 700; --shade: transparent; }
 .badge.local { --fill: var(--mint); color: var(--mint-deep); }
 .badge.away { --fill: var(--peach); color: var(--peach-ink); }
+/* Bonbons animés */
+.fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 45; overflow: hidden; }
+.fx-bit { position: absolute; will-change: transform, opacity; }
+.fx-bit svg { display: block; image-rendering: pixelated; }
+
 /* Petit signe ⚠ en haut à droite : ouvre « Bloquer / Signaler » */
 .card.has-menu { position: relative; }
 .card.has-menu .person { padding-right: 36px; }
