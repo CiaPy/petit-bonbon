@@ -74,6 +74,11 @@ Stripe › **Développeurs › Webhooks** › ta destination › ajoute les év�
 `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`.
 (Si tu n'as pas encore de webhook : URL `https://<ID-DU-PROJET>.supabase.co/functions/v1/stripe-webhook`, puis secret `whsec_…` › Supabase › Edge Functions › Secrets › `STRIPE_WEBHOOK_SECRET`.)
 
+### P3 bis. Notes vocales
+1. Relancer `supabase/schema.sql` : il crée l'espace de stockage privé `vocaux` et ses règles d'accès.
+2. Supabase › **Edge Functions** › nouvelle fonction **`nettoyage-vocaux`** avec le code de `supabase/functions/nettoyage-vocaux/index.ts` (« Verify JWT » peut rester activé), puis **Deploy**.
+L'app appelle cette fonction elle-même : aucun réglage de tâche planifiée n'est nécessaire.
+
 ### P4. Tester avant d'ouvrir
 1. En **mode test** Stripe, crée le même produit et lien, et teste avec la carte `4242 4242 4242 4242`.
 2. Vérifie : abonnement › code Premium affiché › Premium actif dans « Moi » › code saisi sur un 2e appareil › résiliation par le portail › « Se termine le … ».
@@ -151,8 +156,8 @@ supabase/functions/stripe-webhook/index.ts   déblocage après paiement
 
 ## Feuille de route Premium (pas encore développé)
 
-**Premium v1 (en place)** : mots personnalisés filtrés, bonbons animés (cœurs, étoiles, confettis), 25 bonbons par jour, 12 phrases et 6 humeurs en plus (2 humeurs à la fois), bio de 160 caractères, avatars pixel, thèmes de couleur, tarif réduit aux rencontres.
-**Premium v2 (à venir)** : note vocale (15 s, écoutable une fois), photo éphémère, discussion libre.
+**Premium v1 (en place)** : mots personnalisés filtrés, notes vocales (15 s, écoutables une fois), bonbons animés (cœurs, étoiles, confettis), 25 bonbons par jour, 12 phrases et 6 humeurs en plus (2 humeurs à la fois), bio de 160 caractères, avatars pixel, thèmes de couleur, tarif réduit aux rencontres.
+**Premium v2 (à venir)** : photo éphémère, discussion libre.
 
 **Discussion libre (Premium)** : prolongement des petits échanges à phrases toutes faites. Ne s'ouvre que si les **deux** personnes l'acceptent explicitement, uniquement entre abonnés. Filtre automatique (contacts, liens, insultes, contenus sexuels) avant réception, signalement en un geste, file de modération humaine. Aucun lien ni numéro autorisé, même en Premium.
 

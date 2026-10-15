@@ -148,6 +148,12 @@ h3 { font-size: 13px; line-height: 1.6; }
 .badge { display: inline-flex; align-items: center; min-height: 26px; padding: 2px 8px; margin: var(--px); font-size: 14px; font-weight: 700; --shade: transparent; }
 .badge.local { --fill: var(--mint); color: var(--mint-deep); }
 .badge.away { --fill: var(--peach); color: var(--peach-ink); }
+/* Notes vocales */
+.voice-row { display: flex; align-items: center; gap: 10px; font-size: 17px; }
+.rec-dot { width: 12px; height: 12px; background: var(--pink-deep); animation: rec-blink 1s steps(2) infinite; }
+@keyframes rec-blink { 50% { opacity: .2; } }
+.voice-preview { width: 100%; max-width: 360px; height: 40px; }
+
 /* Bonbons animés */
 .fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 45; overflow: hidden; }
 .fx-bit { position: absolute; will-change: transform, opacity; }

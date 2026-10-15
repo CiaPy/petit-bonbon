@@ -131,6 +131,12 @@ alter table public.bonbons add column if not exists reply_to uuid references pub
 create index if not exists bonbons_reply_idx on public.bonbons (reply_to);
 -- Bonbon animé (Premium) : 0 = aucun, 1 = cœurs, 2 = étoiles, 3 = confettis
 alter table public.bonbons add column if not exists effect int not null default 0 check (effect between 0 and 3);
+-- Note vocale (Premium) : fichier privé dans le stockage « vocaux », écoutable une seule fois
+alter table public.bonbons add column if not exists voice_path      text;
+alter table public.bonbons add column if not exists voice_opened_at timestamptz;   -- première écoute
+alter table public.bonbons add column if not exists voice_gone      boolean not null default false; -- fichier supprimé
+create index if not exists bonbons_voice_idx on public.bonbons (voice_gone) where voice_path is not null;
+alter table public.profiles add column if not exists accept_voice boolean not null default true; -- recevoir des notes vocales
 
 -- Mini-conversation : uniquement des phrases choisies dans une liste (phrase_id)
 create table if not exists public.messages (
@@ -259,6 +265,19 @@ begin
   return t;
 end $$;
 
+-- Note vocale jointe à un bonbon : Premium, destinataire d'accord, fichier déposé par l'expéditeur
+create or replace function public.check_voice(uid uuid, p_voice text, recipient uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if p_voice is null or p_voice = '' then return; end if;
+  if not public.is_premium(uid) then raise exception 'PREMIUM'; end if;
+  if not coalesce((select accept_voice from public.profiles where id = recipient), true) then raise exception 'NO_VOICE'; end if;
+  if split_part(p_voice, '/', 1) <> uid::text
+     or not exists (select 1 from storage.objects o where o.bucket_id = 'vocaux' and o.name = p_voice)
+     or exists (select 1 from public.bonbons b where b.voice_path = p_voice)
+  then raise exception 'GONE'; end if;
+end $$;
+
 -- =====================================================================
 -- Fonctions appelées par l'application
 -- =====================================================================
@@ -279,6 +298,7 @@ begin
     'receive_on',     p.receive_on,
     'same_city_only', p.same_city_only,
     'accept_custom',  p.accept_custom,
+    'accept_voice',   p.accept_voice,
     'premium',        coalesce(p.sub_status in ('active', 'trialing'), false),
     'sub_status',     p.sub_status,
     'sub_period_end', p.sub_period_end,
@@ -348,7 +368,7 @@ end $$;
 drop function if exists public.discover();
 create or replace function public.discover()
 returns table (session_id uuid, pseudo text, moods text[], bio text,
-               home_city text, local boolean, already_sent boolean, avatar int, accepts_custom boolean)
+               home_city text, local boolean, already_sent boolean, avatar int, accepts_custom boolean, accepts_voice boolean)
 language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); me public.sessions%rowtype;
 begin
@@ -365,7 +385,7 @@ begin
                  where b.sender_id = uid and b.recipient_id = s.user_id
                    and b.created_at > now() - interval '24 hours'),
          case when public.is_premium(s.user_id) then s.avatar else 0 end,
-         p.accept_custom
+         p.accept_custom, p.accept_voice
   from public.sessions s
   join public.profiles p on p.id = s.user_id
   where s.user_id <> uid
@@ -382,7 +402,9 @@ end $$;
 
 drop function if exists public.send_bonbon(uuid, int);
 drop function if exists public.send_bonbon(uuid, int, text);
-create or replace function public.send_bonbon(p_session_id uuid, p_compliment int, p_custom text default null, p_effect int default 0)
+drop function if exists public.send_bonbon(uuid, int, text, int);
+create or replace function public.send_bonbon(p_session_id uuid, p_compliment int, p_custom text default null, p_effect int default 0,
+                                              p_voice text default null)
 returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); problem text;
   me public.sessions%rowtype; them public.sessions%rowtype; tp public.profiles%rowtype;
@@ -417,12 +439,14 @@ begin
   then raise exception 'WEEKLY'; end if;
 
   txt := public.check_custom(uid, p_custom, them.user_id);
+  perform public.check_voice(uid, p_voice, them.user_id);
   if txt is null and (p_compliment is null or p_compliment not between 0 and 11) then raise exception 'GONE'; end if;
   insert into public.bonbons (sender_id, recipient_id, sender_pseudo, sender_home_city,
-                              sender_current_city, recipient_pseudo, compliment_id, custom_text, effect)
+                              sender_current_city, recipient_pseudo, compliment_id, custom_text, effect, voice_path)
   values (uid, them.user_id, me.pseudo, me.home_city, me.current_city, them.pseudo,
           case when txt is null then p_compliment end, txt,
-          case when public.is_premium(uid) and p_effect between 0 and 3 then p_effect else 0 end);
+          case when public.is_premium(uid) and p_effect between 0 and 3 then p_effect else 0 end,
+          nullif(p_voice, ''));
 end $$;
 
 -- Bonbons reçus (30 derniers jours)
@@ -430,7 +454,8 @@ drop function if exists public.inbox();
 create or replace function public.inbox()
 returns table (id uuid, sender_pseudo text, sender_home_city text, local boolean,
                compliment_id int, status text, created_at timestamptz,
-               is_reply boolean, replied boolean, can_reply boolean, custom_text text, effect int)
+               is_reply boolean, replied boolean, can_reply boolean, custom_text text, effect int,
+               has_voice boolean, voice_heard boolean)
 language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid();
 begin
@@ -445,7 +470,9 @@ begin
           and b.created_at > now() - interval '24 hours'
           and not exists (select 1 from public.bonbons r where r.reply_to = b.id)
           and not public.blocked_between(uid, b.sender_id)),
-         b.custom_text, b.effect
+         b.custom_text, b.effect,
+         b.voice_path is not null,
+         b.voice_gone or b.voice_opened_at is not null or b.created_at < now() - interval '24 hours'
   from public.bonbons b
   where b.recipient_id = uid
     and b.created_at > now() - interval '30 days'
@@ -459,7 +486,9 @@ end $$;
 -- Renvoyer un bonbon en réponse à un bonbon reçu (une seule fois, dans les 24 h)
 drop function if exists public.reply_bonbon(uuid, int);
 drop function if exists public.reply_bonbon(uuid, int, text);
-create or replace function public.reply_bonbon(p_bonbon_id uuid, p_compliment int, p_custom text default null, p_effect int default 0)
+drop function if exists public.reply_bonbon(uuid, int, text, int);
+create or replace function public.reply_bonbon(p_bonbon_id uuid, p_compliment int, p_custom text default null, p_effect int default 0,
+                                               p_voice text default null)
 returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); problem text; me public.sessions%rowtype;
   orig public.bonbons%rowtype; tp public.profiles%rowtype; lim int; txt text;
@@ -479,12 +508,14 @@ begin
       where sender_id = uid and created_at > now() - interval '24 hours') >= lim
   then raise exception 'LIMIT'; end if;
   txt := public.check_custom(uid, p_custom, orig.sender_id);
+  perform public.check_voice(uid, p_voice, orig.sender_id);
   if txt is null and (p_compliment is null or p_compliment not between 0 and 11) then raise exception 'GONE'; end if;
   insert into public.bonbons (sender_id, recipient_id, sender_pseudo, sender_home_city,
-                              sender_current_city, recipient_pseudo, compliment_id, custom_text, reply_to, effect)
+                              sender_current_city, recipient_pseudo, compliment_id, custom_text, reply_to, effect, voice_path)
   values (uid, orig.sender_id, me.pseudo, me.home_city, me.current_city, orig.sender_pseudo,
           case when txt is null then p_compliment end, txt, orig.id,
-          case when public.is_premium(uid) and p_effect between 0 and 3 then p_effect else 0 end);
+          case when public.is_premium(uid) and p_effect between 0 and 3 then p_effect else 0 end,
+          nullif(p_voice, ''));
 end $$;
 
 -- Une mini-conversation est ouverte entre deux personnes quand :
@@ -572,9 +603,11 @@ end $$;
 -- Bonbons envoyés (pour voir les « merci »)
 drop function if exists public.sent();
 create or replace function public.sent()
-returns table (id uuid, recipient_pseudo text, compliment_id int, thanked boolean, created_at timestamptz, custom_text text)
+returns table (id uuid, recipient_pseudo text, compliment_id int, thanked boolean, created_at timestamptz, custom_text text,
+               has_voice boolean, voice_heard boolean)
 language sql security definer set search_path = public as $$
-  select b.id, b.recipient_pseudo, b.compliment_id, b.status = 'thanked', b.created_at, b.custom_text
+  select b.id, b.recipient_pseudo, b.compliment_id, b.status = 'thanked', b.created_at, b.custom_text,
+         b.voice_path is not null, b.voice_opened_at is not null
   from public.bonbons b
   where b.sender_id = auth.uid() and b.created_at > now() - interval '30 days'
   order by b.created_at desc
@@ -646,14 +679,16 @@ begin
 end $$;
 
 drop function if exists public.update_settings(boolean, boolean);
+drop function if exists public.update_settings(boolean, boolean, boolean);
 create or replace function public.update_settings(p_receive_on boolean default null, p_same_city_only boolean default null,
-                                                  p_accept_custom boolean default null)
+                                                  p_accept_custom boolean default null, p_accept_voice boolean default null)
 returns void language plpgsql security definer set search_path = public as $$
 begin
   update public.profiles
   set receive_on = coalesce(p_receive_on, receive_on),
       same_city_only = coalesce(p_same_city_only, same_city_only),
-      accept_custom = coalesce(p_accept_custom, accept_custom)
+      accept_custom = coalesce(p_accept_custom, accept_custom),
+      accept_voice = coalesce(p_accept_voice, accept_voice)
   where id = auth.uid();
 end $$;
 
@@ -741,18 +776,95 @@ begin
   delete from auth.users where id = auth.uid();
 end $$;
 
+-- ---------- Notes vocales : stockage privé ------------------------------
+-- Espace « vocaux » : privé, 400 Ko max par fichier (15 s de voix), audio uniquement.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('vocaux', 'vocaux', false, 400000,
+        array['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/mpeg', 'audio/aac', 'audio/x-m4a'])
+on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit,
+                               allowed_mime_types = excluded.allowed_mime_types;
+
+-- Déposer : seulement un abonné Premium, dans son propre dossier
+create or replace function public.voice_upload_ok(p_name text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select auth.uid() is not null and split_part(p_name, '/', 1) = auth.uid()::text and public.is_premium(auth.uid())
+$$;
+-- Lire : seulement le destinataire, pendant les 2 minutes qui suivent l'ouverture
+create or replace function public.voice_read_ok(p_name text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.bonbons b
+                 where b.voice_path = p_name and b.recipient_id = auth.uid() and not b.voice_gone
+                   and b.status <> 'reported'
+                   and b.voice_opened_at > now() - interval '2 minutes')
+$$;
+-- Effacer : son propre fichier (ex. envoi annulé)
+create or replace function public.voice_delete_ok(p_name text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select auth.uid() is not null and split_part(p_name, '/', 1) = auth.uid()::text
+$$;
+
+drop policy if exists vocaux_insert on storage.objects;
+create policy vocaux_insert on storage.objects for insert to authenticated
+  with check (bucket_id = 'vocaux' and public.voice_upload_ok(name));
+drop policy if exists vocaux_select on storage.objects;
+create policy vocaux_select on storage.objects for select to authenticated
+  using (bucket_id = 'vocaux' and public.voice_read_ok(name));
+drop policy if exists vocaux_delete on storage.objects;
+create policy vocaux_delete on storage.objects for delete to authenticated
+  using (bucket_id = 'vocaux' and public.voice_delete_ok(name));
+
+-- Écouter une note vocale : ouvre une fenêtre de 2 minutes, une seule fois
+create or replace function public.open_voice(p_bonbon_id uuid)
+returns text language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); b public.bonbons%rowtype;
+begin
+  if uid is null then raise exception 'AUTH'; end if;
+  select * into b from public.bonbons where id = p_bonbon_id and recipient_id = uid;
+  if not found or b.voice_path is null or b.voice_gone or b.status = 'reported'
+     or b.created_at < now() - interval '24 hours'
+     or (b.voice_opened_at is not null and b.voice_opened_at < now() - interval '2 minutes')
+  then raise exception 'HEARD'; end if;
+  update public.bonbons set voice_opened_at = coalesce(voice_opened_at, now()) where id = b.id;
+  return b.voice_path;
+end $$;
+
+-- Nettoyage (appelé par la fonction « nettoyage-vocaux », avec la clé service) :
+-- vocaux écoutés depuis plus de 5 min, signalés, de plus de 24 h, ou fichiers orphelins.
+create or replace function public.voices_to_delete()
+returns table (path text) language sql stable security definer set search_path = public as $$
+  select b.voice_path from public.bonbons b
+  where b.voice_path is not null and not b.voice_gone
+    and (b.voice_opened_at < now() - interval '5 minutes'
+         or b.status = 'reported'
+         or b.created_at < now() - interval '24 hours')
+  union
+  select o.name from storage.objects o
+  where o.bucket_id = 'vocaux' and o.created_at < now() - interval '1 hour'
+    and not exists (select 1 from public.bonbons b where b.voice_path = o.name and not b.voice_gone
+                    and b.created_at > now() - interval '24 hours' and b.status <> 'reported'
+                    and (b.voice_opened_at is null or b.voice_opened_at > now() - interval '5 minutes'))
+  limit 500
+$$;
+create or replace function public.voices_deleted(p_paths text[])
+returns void language sql security definer set search_path = public as $$
+  update public.bonbons set voice_gone = true where voice_path = any(p_paths)
+$$;
+
 -- ---------- Droits d'exécution -------------------------------------------
 revoke execute on all functions in schema public from public, anon;
 grant execute on function
   public.my_status(), public.confirm_adult(),
   public.start_session(text, text[], text, text, text), public.end_session(),
-  public.discover(), public.send_bonbon(uuid, int, text, int),
+  public.discover(), public.send_bonbon(uuid, int, text, int, text), public.open_voice(uuid),
+  public.voice_upload_ok(text), public.voice_read_ok(text), public.voice_delete_ok(text),
   public.inbox(), public.sent(), public.thank_bonbon(uuid),
-  public.report(text, uuid, uuid), public.block_only(uuid, uuid), public.update_bio(text), public.update_settings(boolean, boolean, boolean),
-  public.set_avatar(int), public.my_premium_code(), public.restore_premium(text), public.reply_bonbon(uuid, int, text, int), public.conversations(), public.thread(uuid), public.send_phrase(uuid, int),
+  public.report(text, uuid, uuid), public.block_only(uuid, uuid), public.update_bio(text), public.update_settings(boolean, boolean, boolean, boolean),
+  public.set_avatar(int), public.my_premium_code(), public.restore_premium(text), public.reply_bonbon(uuid, int, text, int, text), public.conversations(), public.thread(uuid), public.send_phrase(uuid, int),
   public.delete_account()
 to authenticated;
-revoke execute on function public.text_problem(text, boolean), public.city_ready(text), public.chat_open(uuid, uuid), public.daily_limit_for(uuid),
+revoke execute on function public.text_problem(text, boolean), public.city_ready(text), public.chat_open(uuid, uuid), public.daily_limit_for(uuid), public.check_voice(uuid, text, uuid),
   public.is_premium(uuid), public.check_custom(uuid, text, uuid), public.new_recovery_code() from authenticated;
+revoke execute on function public.voices_to_delete(), public.voices_deleted(text[]) from authenticated;
+grant execute on function public.voices_to_delete(), public.voices_deleted(text[]) to service_role;
 revoke execute on function public.handle_new_user(), public.access_problem(uuid),
   public.blocked_between(uuid, uuid) from authenticated;

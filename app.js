@@ -67,6 +67,7 @@ const PREMIUM_PRICE = '2,99 € / mois';
 const PREMIUM_FEATURES = [
   { short: 'Mon propre mot', long: 'Écrire tes propres mots (filtrés, 140 caractères)' },
   { short: 'Bonbons animés', long: 'Des bonbons qui s’ouvrent en cœurs, étoiles ou confettis' },
+  { short: 'Notes vocales', long: 'Une note vocale de 15 s avec ton bonbon, écoutable une seule fois' },
   { short: 'Plus de bonbons', long: '25 bonbons à offrir par jour au lieu de 10' },
   { short: 'Plus de mots', long: '12 petites phrases en plus dans les échanges' },
   { short: 'Plus d’humeurs', long: '6 humeurs en plus, et 2 humeurs à la fois' },
@@ -75,7 +76,8 @@ const PREMIUM_FEATURES = [
   { short: 'Thèmes', long: 'Des thèmes de couleur pour ton app' },
   { short: 'Rencontres', long: 'Tarif réduit aux rencontres live, dès qu’elles commencent' },
 ];
-const PREMIUM_SOON = 'Bientôt aussi : notes vocales et photos éphémères.';
+const PREMIUM_SOON = 'Bientôt aussi : les photos éphémères.';
+const VOICE_MAX = 15; // secondes
 const LOCKED_CHIPS = ['Mon propre mot', 'Bonbon animé', 'Note vocale', 'Photo'];
 
 // Avatars en pixel art (Premium). a = couleur, b = clair, c = foncé, w = blanc
@@ -120,6 +122,8 @@ const ERRORS = {
   SLOW: 'Doucement 🍬 Laisse une petite seconde entre deux messages.',
   LIMIT_CHAT: 'Vous avez beaucoup échangé aujourd’hui. Reprenez demain !',
   PREMIUM: 'Cette option fait partie de Premium.',
+  NO_VOICE: 'Cette personne préfère ne pas recevoir de notes vocales. Retire la note pour envoyer ton bonbon.',
+  HEARD: 'Cette note vocale a déjà été écoutée. Elle n’existe plus.',
   NO_CUSTOM: 'Cette personne préfère recevoir les compliments de la liste.',
   BAD_CODE: 'Ce code ne correspond à aucun Premium. Vérifie-le et réessaie.',
   TOO_MANY: 'Trop d’essais. Réessaie dans une heure.',
@@ -213,6 +217,8 @@ const errMsg = (e) => {
   if (/Password should be/i.test(raw)) return 'Le mot de passe doit faire au moins 8 caractères.';
   if (/rate limit|too many/i.test(raw)) return 'Trop de tentatives, réessaie dans quelques minutes.';
   if (/Failed to fetch|NetworkError/i.test(raw)) return 'Connexion impossible. Vérifie ton réseau.';
+  if (/row-level security|violates row/i.test(raw)) return 'L’envoi de la note vocale a été refusé. Vérifie que Premium est actif.';
+  if (/mime type|payload too large|maximum allowed size|exceeded the maximum/i.test(raw)) return 'Cette note vocale est trop lourde ou dans un format non pris en charge.';
   // Détail technique affiché en petit : utile pour comprendre une erreur imprévue
   try { console.error('[Petit Bonbon]', e); } catch (_) {}
   const detail = raw.replace(/\s+/g, ' ').trim().slice(0, 90);
@@ -517,6 +523,7 @@ V.tab_send = () => {
           : `<div class="field"><label for="custom">Ou écris ton propre mot <span style="color:var(--pink-deep)">· Premium</span></label>
               <textarea id="custom" name="custom" rows="3" maxlength="140" placeholder="Il remplace le compliment choisi au-dessus">${esc(S.custom)}</textarea>
               <span class="small">140 caractères. Bienveillant, sans numéro, réseau social ni lien : il est vérifié avant d’arriver.</span></div>`)
+        + (t.accepts_voice === false ? '' : V.voiceBox())
         + `<div class="stack" style="gap:10px">
               <span class="label" style="padding:0 4px">Animation à l’ouverture <span style="color:var(--pink-deep)">· Premium</span></span>
               <div class="chips">${EFFECTS.map((e, i) => `<button type="button" class="chip" aria-pressed="${(S.effect || 0) === i}" data-a="pickEffect" data-i="${i}">${esc(e)}</button>`).join('')}</div>
@@ -527,6 +534,26 @@ V.tab_send = () => {
     </div>`}
     ${errorBox()}
     <button class="btn" data-a="send" ${S.busy ? 'disabled' : ''}>Envoyer le bonbon</button>
+  </div>`;
+};
+
+// Note vocale à joindre (Premium)
+V.voiceBox = () => {
+  const v = S.voice || {};
+  let inner;
+  if (v.recording) {
+    inner = `<div class="voice-row"><span class="rec-dot" aria-hidden="true"></span><span><strong>Enregistrement…</strong> <span id="rec-secs">${Math.floor((Date.now() - v.start) / 1000)}</span> / ${VOICE_MAX} s</span></div>
+      <button type="button" class="btn small dark" data-a="stopVoice">Arrêter</button>`;
+  } else if (v.url) {
+    inner = `<audio controls preload="auto" src="${v.url}" class="voice-preview"></audio>
+      <div class="row"><button type="button" class="btn small ghost" data-a="recVoice">Recommencer</button><button type="button" class="link muted" data-a="dropVoice">Retirer la note</button></div>`;
+  } else {
+    inner = `<button type="button" class="btn small soft" data-a="recVoice" style="align-self:flex-start">🎙 Enregistrer une note vocale</button>`;
+  }
+  return `<div class="stack voice-box" style="gap:10px">
+    <span class="label" style="padding:0 4px">Note vocale · ${VOICE_MAX} s max <span style="color:var(--pink-deep)">· Premium</span></span>
+    ${inner}
+    <span class="small">Elle sera écoutable une seule fois, puis effacée. Bienveillante, sans numéro ni réseau social.</span>
   </div>`;
 };
 
@@ -545,6 +572,9 @@ V.tab_inbox = () => {
       <span class="context">${m.local ? 'Vous êtes dans la même ville, mais vous ne vous connaissez pas.' : `Un inconnu de passage à ${esc(city)}, venu de ${esc(m.sender_home_city)}.`}</span>
       <p class="quote">« ${esc(m.custom_text || COMPLIMENTS[m.compliment_id] || '')} »</p>
       <span class="small">— ${esc(m.sender_pseudo)} · ${timeAgo(m.created_at)}${m.is_reply ? ' · <strong>en réponse à ton bonbon</strong>' : ''}${m.custom_text ? ' · mot personnalisé' : ''}</span>
+      ${m.has_voice && m.status !== 'reported' ? (m.voice_heard
+        ? '<span class="small">🎙 Note vocale écoutée (elle n’existe plus)</span>'
+        : `<button class="btn small dark" style="align-self:flex-start" data-a="playVoice" data-id="${esc(m.id)}" ${S.playing ? 'disabled' : ''}>${S.playing === m.id ? '🎙 Lecture en cours…' : '🎙 Écouter la note vocale · une seule fois'}</button>`) : ''}
       ${m.effect ? `<button class="link" style="align-self:flex-start;font-size:14px" data-a="replayEffect" data-e="${m.effect}">✨ Rejouer l’animation</button>` : ''}
       ${m.status !== 'reported' ? `<div class="row">
           ${m.can_reply ? `<button class="btn small" data-a="replyBonbon" data-id="${esc(m.id)}">Renvoyer un bonbon</button>` : ''}
@@ -558,7 +588,7 @@ V.tab_inbox = () => {
     : `<div class="empty">${candy('#E2CFCB', 64)}<span>Pas encore de bonbon. Garde l’app ouverte, on te prévient dès qu’un compliment arrive.</span></div>`;
   const sent = S.sent.length ? `<h3 style="margin:12px 4px 0">Tes bonbons envoyés</h3>` + S.sent.map((m) => `<div class="card" style="gap:6px;padding:14px 16px">
       <span style="font-size:15px">« ${esc(m.custom_text || COMPLIMENTS[m.compliment_id] || '')} » à <strong>${esc(m.recipient_pseudo)}</strong></span>
-      <span class="small">${timeAgo(m.created_at)}${m.thanked ? ' · <strong style="color:var(--accent-deep)">Merci reçu</strong>' : ''}</span>
+      <span class="small">${timeAgo(m.created_at)}${m.has_voice ? (m.voice_heard ? ' · 🎙 note écoutée' : ' · 🎙 note pas encore écoutée') : ''}${m.thanked ? ' · <strong style="color:var(--accent-deep)">Merci reçu</strong>' : ''}</span>
     </div>`).join('') : '';
   const convs = S.convs.length ? `<h3 style="margin:0 4px">Vos petits échanges</h3>` + S.convs.map((c) => `<button class="card conv" data-a="openChat" data-sid="${esc(c.session_id)}">
       <span class="row" style="justify-content:space-between;width:100%"><strong style="font-size:18px">${esc(c.pseudo)}</strong>${convUnread(c) ? '<span class="dot-new" aria-label="Nouveau message"></span>' : ''}</span>
@@ -613,6 +643,7 @@ V.tab_me = () => {
       <span class="small" style="padding-top:12px">Ce que je reçois</span>
       ${tg('receive_on', 'Recevoir des bonbons', 'Si c’est coupé, tu n’apparais plus dans « Découvrir ».')}
       ${tg('accept_custom', 'Recevoir des mots personnalisés', 'Écrits par des membres Premium, vérifiés avant d’arriver.')}
+      ${tg('accept_voice', 'Recevoir des notes vocales', 'Envoyées par des membres Premium, écoutables une seule fois.')}
     </div>
     <div class="card" style="padding:6px 18px;gap:0">
       <span class="small" style="padding-top:12px">Sons</span>
@@ -793,7 +824,7 @@ async function route() {
   else if (!st.session || S.view === 'identity') S.view = 'identity';
   else { S.view = 'main'; }
   render();
-  if (S.view === 'main') loadData();
+  if (S.view === 'main') { loadData(); cleanupVoices(false); }
 }
 
 async function loadPremiumCode() {
@@ -822,6 +853,109 @@ function noteInbox(list) {
   }
   S.seenInbox = ids;
   S.inbox = list;
+}
+
+// ---------- Notes vocales (Premium) ------------------------------------
+// Enregistrées sur le téléphone (15 s max), déposées dans un espace privé,
+// écoutables une seule fois par le destinataire, puis effacées.
+const SILENT = 'data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YSADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+function dropVoiceNow() {
+  const v = S.voice;
+  if (v) {
+    if (v.recording) { v.cancel = true; try { v.recorder.stop(); } catch (_) {} }
+    if (v.url) URL.revokeObjectURL(v.url);
+    clearInterval(v.timer);
+  }
+  S.voice = null;
+}
+async function startRecording() {
+  if (!isPremium()) return A.openPremium();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+    return toast('Ton navigateur ne permet pas d’enregistrer de note vocale.');
+  }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+  catch (_) { return toast('Le micro est refusé. Autorise-le pour Petit Bonbon dans les réglages du navigateur.'); }
+  dropVoiceNow();
+  const type = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']
+    .find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
+  let rec;
+  try { rec = new MediaRecorder(stream, type ? { mimeType: type, audioBitsPerSecond: 48000 } : { audioBitsPerSecond: 48000 }); }
+  catch (_) { rec = new MediaRecorder(stream); }
+  const chunks = [];
+  const v = { recording: true, recorder: rec, start: Date.now(), stream };
+  S.voice = v;
+  rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  rec.onstop = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    clearInterval(v.timer);
+    if (v.cancel || S.voice !== v) return;
+    const blob = new Blob(chunks, { type: (rec.mimeType || type || 'audio/webm').split(';')[0] });
+    if (blob.size < 1500) { S.voice = null; toast('La note est trop courte, réessaie.'); return render(); }
+    S.voice = { blob, url: URL.createObjectURL(blob) };
+    render();
+  };
+  rec.start(250);
+  v.timer = setInterval(() => {
+    const secs = Math.floor((Date.now() - v.start) / 1000);
+    const el = document.getElementById('rec-secs');
+    if (el) el.textContent = String(Math.min(secs, VOICE_MAX));
+    if (Date.now() - v.start >= VOICE_MAX * 1000) stopRecording();
+  }, 200);
+  render();
+}
+function stopRecording() {
+  const v = S.voice;
+  if (v && v.recording && v.recorder.state !== 'inactive') { v.recording = false; v.recorder.stop(); }
+}
+async function uploadVoice(blob) {
+  const base = (blob.type || 'audio/webm').split(';')[0];
+  const ext = /mp4|m4a|aac/.test(base) ? 'm4a' : /ogg/.test(base) ? 'ogg' : /mpeg/.test(base) ? 'mp3' : 'webm';
+  const path = `${S.user.id}/${crypto.randomUUID()}.${ext}`;
+  const { error } = await sb.storage.from('vocaux').upload(path, blob, { contentType: base, upsert: false });
+  if (error) throw error;
+  return path;
+}
+function playVoiceOnce(id) {
+  if (S.playing) return;
+  // Sur iPhone, le son doit démarrer dans le geste : on « réveille » le lecteur tout de suite
+  const audio = new Audio();
+  audio.src = SILENT;
+  audio.play().catch(() => {});
+  S.playing = id; render();
+  let url = null;
+  const finish = (heard) => {
+    if (url) URL.revokeObjectURL(url);
+    const m = S.inbox.find((x) => x.id === id);
+    if (m && heard) m.voice_heard = true;
+    S.playing = null; render();
+    cleanupVoices(true);
+  };
+  (async () => {
+    try {
+      const path = await rpc('open_voice', { p_bonbon_id: id });
+      const { data, error } = await sb.storage.from('vocaux').download(path);
+      if (error) throw error;
+      url = URL.createObjectURL(data);
+      audio.onended = () => finish(true);
+      audio.onerror = () => { toast('Cette note ne peut pas être lue sur ce téléphone.'); finish(true); };
+      audio.src = url;
+      await audio.play();
+    } catch (e) {
+      toast(errMsg(e));
+      finish(/HEARD/.test((e && e.message) || ''));
+    }
+  })();
+}
+// Demande au serveur d'effacer les vocaux écoutés ou expirés (au plus toutes les 10 min, sauf après une écoute)
+function cleanupVoices(force) {
+  if (!sb) return;
+  let last = 0; try { last = +localStorage.getItem('pb_voice_clean') || 0; } catch (_) {}
+  if (!force && Date.now() - last < 10 * 60 * 1000) return;
+  try { localStorage.setItem('pb_voice_clean', String(Date.now())); } catch (_) {}
+  const run = () => sb.functions.invoke('nettoyage-vocaux').catch(() => {});
+  if (force) setTimeout(run, 6 * 60 * 1000); // juste après la fenêtre d'écoute de 5 min
+  else run();
 }
 
 // ---------- Bonbons animés (Premium) -----------------------------------
@@ -979,12 +1113,17 @@ const A = {
     if (d.tab === 'discover' || d.tab === 'inbox') loadData();
   },
   refresh() { S.cardMenu = null; S.peopleLoaded = false; render(); loadData(); },
-  pickTarget(d) { S.target = S.people[+d.i]; S.pick = 0; S.custom = ''; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0); },
+  pickTarget(d) { dropVoiceNow(); S.target = S.people[+d.i]; S.pick = 0; S.custom = ''; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0); },
   pick(d) { S.pick = +d.i; render(); },
   replayEffect(d) { playEffect(+d.e); },
+  recVoice() { startRecording(); },
+  stopVoice() { stopRecording(); },
+  dropVoice() { dropVoiceNow(); render(); },
+  playVoice(d) { playVoiceOnce(d.id); },
   pickEffect(d) { S.effect = +d.i; render(); if (S.effect) playEffect(S.effect); },
   replyBonbon(d) {
     const m = S.inbox.find((x) => x.id === d.id); if (!m) return;
+    dropVoiceNow();
     S.target = { pseudo: m.sender_pseudo, local: m.local, home_city: m.sender_home_city, reply_id: m.id };
     S.pick = 0; S.custom = ''; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0);
   },
@@ -1008,8 +1147,16 @@ const A = {
     try {
       const custom = isPremium() && S.custom.trim() ? S.custom.trim() : null;
       const effect = isPremium() ? (S.effect || 0) : 0;
-      if (S.target.reply_id) await rpc('reply_bonbon', { p_bonbon_id: S.target.reply_id, p_compliment: S.pick, p_custom: custom, p_effect: effect });
-      else await rpc('send_bonbon', { p_session_id: S.target.session_id, p_compliment: S.pick, p_custom: custom, p_effect: effect });
+      if (S.voice && S.voice.recording) stopRecording();
+      const voice = isPremium() && S.voice && S.voice.blob ? await uploadVoice(S.voice.blob) : null;
+      try {
+        if (S.target.reply_id) await rpc('reply_bonbon', { p_bonbon_id: S.target.reply_id, p_compliment: S.pick, p_custom: custom, p_effect: effect, p_voice: voice });
+        else await rpc('send_bonbon', { p_session_id: S.target.session_id, p_compliment: S.pick, p_custom: custom, p_effect: effect, p_voice: voice });
+      } catch (e) {
+        if (voice) sb.storage.from('vocaux').remove([voice]).catch(() => {});
+        throw e;
+      }
+      if (voice) dropVoiceNow();
       if (effect) setTimeout(() => playEffect(effect), 150);
       S.lastSentText = custom || COMPLIMENTS[S.pick];
       S.custom = '';
@@ -1081,7 +1228,7 @@ const A = {
     const key = d.key, val = !S.status[key];
     S.status[key] = val; render();
     try {
-      await rpc('update_settings', { p_receive_on: key === 'receive_on' ? val : null, p_same_city_only: key === 'same_city_only' ? val : null, p_accept_custom: key === 'accept_custom' ? val : null });
+      await rpc('update_settings', { p_receive_on: key === 'receive_on' ? val : null, p_same_city_only: key === 'same_city_only' ? val : null, p_accept_custom: key === 'accept_custom' ? val : null, p_accept_voice: key === 'accept_voice' ? val : null });
     } catch (e) { S.status[key] = !val; render(); toast(errMsg(e)); }
   },
   editIdentity() {
