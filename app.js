@@ -190,7 +190,10 @@ const errMsg = (e) => {
   if (/Password should be/i.test(raw)) return 'Le mot de passe doit faire au moins 8 caractères.';
   if (/rate limit|too many/i.test(raw)) return 'Trop de tentatives, réessaie dans quelques minutes.';
   if (/Failed to fetch|NetworkError/i.test(raw)) return 'Connexion impossible. Vérifie ton réseau.';
-  return 'Oups, quelque chose n’a pas marché. Réessaie.';
+  // Détail technique affiché en petit : utile pour comprendre une erreur imprévue
+  try { console.error('[Petit Bonbon]', e); } catch (_) {}
+  const detail = raw.replace(/\s+/g, ' ').trim().slice(0, 90);
+  return 'Oups, quelque chose n’a pas marché. Réessaie.' + (detail ? ` (détail : ${detail})` : '');
 };
 let toastTimer;
 function toast(msg) {
