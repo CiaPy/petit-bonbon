@@ -102,6 +102,9 @@ update app_settings set daily_send_limit = 15;
 -- Nombre de personnes nécessaires dans une ville pour ouvrir « Découvrir » (2 par défaut)
 update app_settings set min_city_people = 2;
 
+-- « Autour de toi » ne montre que les personnes qui ont l'app ouverte depuis moins de N minutes (3 par défaut)
+update app_settings set presence_minutes = 3;
+
 -- Bonbons max vers une même personne sur 7 jours (2 par défaut)
 update app_settings set weekly_pair_limit = 2;
 

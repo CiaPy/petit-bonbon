@@ -164,7 +164,8 @@ const S = {
   form: { pseudo: '', moods: [], bio: '', city: '', home: '' },
   people: [], peopleLoaded: false, inbox: [], sent: [],
   target: null, pick: 0, lastSentText: '',
-  report: null,            // { bonbonId?, sessionId?, pseudo }
+  report: null,            // { bonbonId?, sessionId?, pseudo, mode?: 'block' | 'report' }
+  cardMenu: null,          // index de la carte « Autour de toi » dont le petit menu ⚠ est ouvert
   premium: false,          // feuille « Premium » ouverte
   convs: [], chat: null, thread: [],   // mini-conversations
   custom: '', premiumMode: 'join', checkmailMsg: '', premiumCode: null,
@@ -228,6 +229,7 @@ const ICON = {
   me: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
   lockSmall: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
   refresh: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
+  warn: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5L2.5 20h19z"/><path d="M12 10v4.5"/><circle cx="12" cy="17.3" r=".6" fill="currentColor"/></svg>',
   lock: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
 };
 // Bonbon en pixel art (grille 22 × 12). # = papier, o = reflet, w = brillance
@@ -436,7 +438,12 @@ V.tab_discover = () => {
     const badge = p.local
       ? `<span class="badge local">Vous êtes tous les deux à ${esc(city)}</span>`
       : `<span class="badge away">De passage · vient de ${esc(p.home_city)}</span>`;
-    return `<article class="card">
+    return `<article class="card has-menu">
+      <button class="card-warn" data-a="cardMenu" data-i="${i}" aria-label="Bloquer ou signaler ${esc(p.pseudo)}" aria-haspopup="menu" aria-expanded="${S.cardMenu === i}">${ICON.warn}</button>
+      ${S.cardMenu === i ? `<div class="card-menu" role="menu">
+        <button role="menuitem" data-a="askBlock" data-i="${i}">Bloquer</button>
+        <button role="menuitem" data-a="askReport" data-i="${i}">Signaler</button>
+      </div>` : ''}
       <div class="person">
         <div class="avatar" style="--fill:${AVATAR_COLORS[i % 4]}">${p.avatar ? pixelAvatar(p.avatar, 36) : esc((p.pseudo || '?').charAt(0).toUpperCase())}</div>
         <div class="stack" style="gap:3px;min-width:0"><span class="name">${esc(p.pseudo)}</span>${p.moods && p.moods.length ? `<span class="moods">${esc(p.moods.join(' · '))}</span>` : ''}</div>
@@ -447,7 +454,6 @@ V.tab_discover = () => {
           ? '<span class="small">Bonbon envoyé aujourd’hui</span>'
           : `<button class="btn small dark" data-a="pickTarget" data-i="${i}">Envoyer un bonbon</button>`}
       </div>
-      <button class="link muted" style="align-self:flex-start;font-size:13px" data-a="reportSession" data-i="${i}">Bloquer ou signaler</button>
     </article>`;
   }).join('');
   return `<div class="scroll">
@@ -668,7 +674,25 @@ V.premiumSheet = () => {
 </div>`;
 };
 
-V.reportSheet = () => `<div class="sheet-back" data-a="closeReport">
+V.reportSheet = () => {
+  const r = S.report;
+  if (r.mode === 'block') return `<div class="sheet-back" data-a="closeReport">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Bloquer" data-stop="1">
+    <h3 style="margin-bottom:4px">Bloquer ${esc(r.pseudo)} ?</h3>
+    <p class="small" style="margin:0">Vous ne vous verrez plus et ne pourrez plus vous écrire. Personne n’est prévenu.</p>
+    <button class="btn" data-a="blockOnly">Bloquer</button>
+    <button class="link muted" style="align-self:center" data-a="closeReport">Annuler</button>
+  </div>
+</div>`;
+  if (r.mode === 'report') return `<div class="sheet-back" data-a="closeReport">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Signaler" data-stop="1">
+    <h3 style="margin-bottom:4px">Signaler ${esc(r.pseudo)}</h3>
+    <p class="small" style="margin:0 0 6px">Qu’est-ce qui ne va pas ? La personne est bloquée et notre équipe est prévenue.</p>
+    ${REASONS.map((x) => `<button class="reason" data-a="confirmReport" data-reason="${esc(x)}">${esc(x)}</button>`).join('')}
+    <button class="link muted" style="align-self:center" data-a="closeReport">Annuler</button>
+  </div>
+</div>`;
+  return `<div class="sheet-back" data-a="closeReport">
   <div class="sheet" role="dialog" aria-modal="true" aria-label="Signaler" data-stop="1">
     <h3 style="margin-bottom:4px">${esc(S.report.pseudo)}</h3>
     <button class="btn ghost" data-a="blockOnly">Bloquer, sans signaler</button>
@@ -679,6 +703,7 @@ V.reportSheet = () => `<div class="sheet-back" data-a="closeReport">
     <button class="link muted" style="align-self:center" data-a="closeReport">Annuler</button>
   </div>
 </div>`;
+};
 
 // ---------- Rendu ------------------------------------------------------
 let lastView = null;
@@ -838,7 +863,7 @@ const A = {
     render();
     if (d.tab === 'discover' || d.tab === 'inbox') loadData();
   },
-  refresh() { S.peopleLoaded = false; render(); loadData(); },
+  refresh() { S.cardMenu = null; S.peopleLoaded = false; render(); loadData(); },
   pickTarget(d) { S.target = S.people[+d.i]; S.pick = 0; S.custom = ''; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0); },
   pick(d) { S.pick = +d.i; render(); },
   replyBonbon(d) {
@@ -884,6 +909,9 @@ const A = {
   },
   reportBonbon(d) { const m = S.inbox.find((x) => x.id === d.id); S.report = { bonbonId: d.id, pseudo: m ? m.sender_pseudo : 'Cette personne' }; render(); },
   reportSession(d) { const p = S.people[+d.i]; S.report = { sessionId: p.session_id, pseudo: p.pseudo }; render(); },
+  cardMenu(d) { S.cardMenu = S.cardMenu === +d.i ? null : +d.i; render(); },
+  askBlock(d) { const p = S.people[+d.i]; S.cardMenu = null; S.report = { sessionId: p.session_id, pseudo: p.pseudo, mode: 'block' }; render(); },
+  askReport(d) { const p = S.people[+d.i]; S.cardMenu = null; S.report = { sessionId: p.session_id, pseudo: p.pseudo, mode: 'report' }; render(); },
   closeReport() { S.report = null; render(); },
   async blockOnly() {
     const r = S.report; S.report = null;
@@ -1065,6 +1093,11 @@ document.addEventListener('click', (e) => {
   const tap = e.target.closest('button, a, .chip, .compliment, .reason, input[type=checkbox]');
   if (tap && !e.__pbOpenPlayed) SOUND.play('click');
   const el = e.target.closest('[data-a]');
+  // un clic en dehors du petit menu ⚠ le referme
+  if (S.cardMenu !== null && !e.target.closest('.card-menu, .card-warn')) {
+    S.cardMenu = null;
+    if (!el) return render();
+  }
   if (!el) return;
   // un clic dans la feuille ne doit pas la fermer
   if (el.classList.contains('sheet-back') && e.target.closest('[data-stop]')) return;
@@ -1097,7 +1130,7 @@ document.addEventListener('contextmenu', (e) => { if (e.target.closest('.card, .
 document.addEventListener('copy', (e) => { if (window.getSelection && e.target.closest && e.target.closest('.card')) e.preventDefault(); });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && (S.report || S.premium)) { S.report = null; S.premium = false; render(); }
+  if (e.key === 'Escape' && (S.report || S.premium || S.cardMenu !== null)) { S.report = null; S.premium = false; S.cardMenu = null; render(); }
 });
 
 // ---------- Démarrage --------------------------------------------------

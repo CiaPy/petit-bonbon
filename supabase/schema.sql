@@ -44,6 +44,14 @@ create table if not exists public.sessions (
   expires_at    timestamptz not null default now() + interval '12 hours'
 );
 
+-- Présence : une identité n'apparaît dans « Autour de toi » que si l'app est
+-- ouverte en ce moment sur cet appareil (mise à jour toutes les 20 s par l'app).
+-- Évite de voir ses propres anciennes identités (autre navigateur, autre appareil,
+-- onglet privé fermé…) comme des inconnus de la même ville.
+alter table public.sessions add column if not exists last_seen_at timestamptz not null default now();
+create index if not exists sessions_seen_idx on public.sessions (last_seen_at);
+alter table public.app_settings add column if not exists presence_minutes int not null default 3;
+
 -- ---------- Bonbons (compliments envoyés) --------------------------------
 create table if not exists public.bonbons (
   id                   uuid primary key default gen_random_uuid(),
@@ -209,6 +217,7 @@ returns boolean language sql stable security definer set search_path = public as
   select count(distinct s.user_id) >= (select min_city_people from public.app_settings where id = 1)
   from public.sessions s join public.profiles p on p.id = s.user_id
   where s.expires_at > now() and not p.banned
+    and s.last_seen_at > now() - make_interval(mins => (select presence_minutes from public.app_settings where id = 1))
     and public.norm_city(s.current_city) = public.norm_city(p_city)
 $$;
 
@@ -240,6 +249,7 @@ declare uid uuid := auth.uid(); res json;
 begin
   if uid is null then raise exception 'AUTH'; end if;
   insert into public.profiles (id) values (uid) on conflict do nothing;
+  update public.sessions set last_seen_at = now() where user_id = uid and expires_at > now();
   select json_build_object(
     'adult',          p.adult_confirmed_at is not null,
     'paid',           p.paid_at is not null,
@@ -317,6 +327,7 @@ begin
   if public.access_problem(uid) is not null then return; end if;
   select * into me from public.sessions where user_id = uid and expires_at > now();
   if not found then return; end if;
+  update public.sessions set last_seen_at = now() where id = me.id;
   if not public.city_ready(me.current_city) then return; end if;
 
   return query
@@ -331,6 +342,7 @@ begin
   join public.profiles p on p.id = s.user_id
   where s.user_id <> uid
     and s.expires_at > now()
+    and s.last_seen_at > now() - make_interval(mins => (select presence_minutes from public.app_settings where id = 1))
     and public.norm_city(s.current_city) = public.norm_city(me.current_city)
     and not p.banned
     and p.receive_on

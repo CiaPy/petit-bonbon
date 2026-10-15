@@ -148,6 +148,15 @@ h3 { font-size: 13px; line-height: 1.6; }
 .badge { display: inline-flex; align-items: center; min-height: 26px; padding: 2px 8px; margin: var(--px); font-size: 14px; font-weight: 700; --shade: transparent; }
 .badge.local { --fill: var(--mint); color: var(--mint-deep); }
 .badge.away { --fill: var(--peach); color: var(--peach-ink); }
+/* Petit signe ⚠ en haut à droite : ouvre « Bloquer / Signaler » */
+.card.has-menu { position: relative; }
+.card.has-menu .person { padding-right: 36px; }
+.card-warn { position: absolute; top: 8px; right: 8px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--muted); cursor: pointer; opacity: .75; }
+.card-warn:hover, .card-warn[aria-expanded="true"] { opacity: 1; }
+.card-warn:focus-visible { outline: 2px solid var(--muted); outline-offset: -2px; }
+.card-menu { position: absolute; top: 48px; right: 10px; z-index: 5; display: flex; flex-direction: column; min-width: 150px; padding: 4px; background: #fff; box-shadow: 0 0 0 2px var(--lilac-shade), 4px 4px 0 var(--lilac-shade); }
+.card-menu button { min-height: 44px; padding: 0 14px; border: 0; background: transparent; text-align: left; font: inherit; font-size: 16px; color: var(--ink); cursor: pointer; }
+.card-menu button:hover, .card-menu button:focus-visible { background: var(--lemon); outline: none; }
 .card-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 .compliment { display: flex; gap: 14px; align-items: center; min-height: 52px; padding: 10px 12px; margin: 0 var(--px) var(--px); text-align: left; font-size: 17px; line-height: 1.3; cursor: pointer; }
