@@ -154,6 +154,18 @@ h3 { font-size: 13px; line-height: 1.6; }
 @keyframes rec-blink { 50% { opacity: .2; } }
 .voice-preview { width: 100%; max-width: 360px; height: 40px; }
 
+/* Photos floues */
+.photo-preview img { display: block; max-width: 100%; max-height: 220px; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.photo-blur { position: relative; display: block; width: 100%; max-width: 360px; aspect-ratio: 4 / 3; padding: 0; border: 0; overflow: hidden; cursor: pointer; background: var(--lilac); margin: var(--px); }
+.photo-blur img { position: absolute; inset: -20px; width: calc(100% + 40px); height: calc(100% + 40px); object-fit: cover; filter: blur(18px) saturate(1.2); transform: scale(1.1); }
+.photo-blur span { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(255,255,255,.88); color: var(--ink); padding: 10px 14px; font: inherit; font-size: 16px; font-weight: 700; white-space: nowrap; }
+.photo-blur[disabled] { cursor: default; opacity: .8; }
+.photo-view { position: fixed; inset: 0; z-index: 50; background: #140E1C; display: flex; align-items: center; justify-content: center; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.photo-view img { max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: none; }
+.photo-count { position: absolute; top: calc(16px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; color: #fff; }
+.photo-count span { font-family: var(--display); font-size: 22px; }
+.photo-count small { font-size: 13px; opacity: .8; }
+
 /* Bonbons animés */
 .fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 45; overflow: hidden; }
 .fx-bit { position: absolute; will-change: transform, opacity; }

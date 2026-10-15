@@ -137,6 +137,13 @@ alter table public.bonbons add column if not exists voice_opened_at timestamptz;
 alter table public.bonbons add column if not exists voice_gone      boolean not null default false; -- fichier supprimé
 create index if not exists bonbons_voice_idx on public.bonbons (voice_gone) where voice_path is not null;
 alter table public.profiles add column if not exists accept_voice boolean not null default true; -- recevoir des notes vocales
+-- Photo (Premium) : arrive floutée, se révèle nette 10 secondes une seule fois, puis est effacée
+alter table public.bonbons add column if not exists photo_path      text;
+alter table public.bonbons add column if not exists photo_thumb     text check (photo_thumb is null or char_length(photo_thumb) <= 6000); -- minuscule aperçu flou
+alter table public.bonbons add column if not exists photo_opened_at timestamptz;
+alter table public.bonbons add column if not exists photo_gone      boolean not null default false;
+create index if not exists bonbons_photo_idx on public.bonbons (photo_gone) where photo_path is not null;
+alter table public.profiles add column if not exists accept_photo boolean not null default true; -- recevoir des photos
 
 -- Mini-conversation : uniquement des phrases choisies dans une liste (phrase_id)
 create table if not exists public.messages (
@@ -278,6 +285,20 @@ begin
   then raise exception 'GONE'; end if;
 end $$;
 
+-- Photo jointe à un bonbon : Premium, destinataire d'accord, fichier déposé par l'expéditeur, aperçu flou minuscule
+create or replace function public.check_photo(uid uuid, p_photo text, p_thumb text, recipient uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if p_photo is null or p_photo = '' then return; end if;
+  if not public.is_premium(uid) then raise exception 'PREMIUM'; end if;
+  if not coalesce((select accept_photo from public.profiles where id = recipient), true) then raise exception 'NO_PHOTO'; end if;
+  if p_thumb is null or p_thumb not like 'data:image/jpeg;base64,%' or char_length(p_thumb) > 6000 then raise exception 'GONE'; end if;
+  if split_part(p_photo, '/', 1) <> uid::text
+     or not exists (select 1 from storage.objects o where o.bucket_id = 'photos' and o.name = p_photo)
+     or exists (select 1 from public.bonbons b where b.photo_path = p_photo)
+  then raise exception 'GONE'; end if;
+end $$;
+
 -- =====================================================================
 -- Fonctions appelées par l'application
 -- =====================================================================
@@ -299,6 +320,7 @@ begin
     'same_city_only', p.same_city_only,
     'accept_custom',  p.accept_custom,
     'accept_voice',   p.accept_voice,
+    'accept_photo',   p.accept_photo,
     'premium',        coalesce(p.sub_status in ('active', 'trialing'), false),
     'sub_status',     p.sub_status,
     'sub_period_end', p.sub_period_end,
@@ -368,7 +390,7 @@ end $$;
 drop function if exists public.discover();
 create or replace function public.discover()
 returns table (session_id uuid, pseudo text, moods text[], bio text,
-               home_city text, local boolean, already_sent boolean, avatar int, accepts_custom boolean, accepts_voice boolean)
+               home_city text, local boolean, already_sent boolean, avatar int, accepts_custom boolean, accepts_voice boolean, accepts_photo boolean)
 language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); me public.sessions%rowtype;
 begin
@@ -385,7 +407,7 @@ begin
                  where b.sender_id = uid and b.recipient_id = s.user_id
                    and b.created_at > now() - interval '24 hours'),
          case when public.is_premium(s.user_id) then s.avatar else 0 end,
-         p.accept_custom, p.accept_voice
+         p.accept_custom, p.accept_voice, p.accept_photo
   from public.sessions s
   join public.profiles p on p.id = s.user_id
   where s.user_id <> uid
@@ -403,8 +425,9 @@ end $$;
 drop function if exists public.send_bonbon(uuid, int);
 drop function if exists public.send_bonbon(uuid, int, text);
 drop function if exists public.send_bonbon(uuid, int, text, int);
+drop function if exists public.send_bonbon(uuid, int, text, int, text);
 create or replace function public.send_bonbon(p_session_id uuid, p_compliment int, p_custom text default null, p_effect int default 0,
-                                              p_voice text default null)
+                                              p_voice text default null, p_photo text default null, p_photo_thumb text default null)
 returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); problem text;
   me public.sessions%rowtype; them public.sessions%rowtype; tp public.profiles%rowtype;
@@ -440,13 +463,15 @@ begin
 
   txt := public.check_custom(uid, p_custom, them.user_id);
   perform public.check_voice(uid, p_voice, them.user_id);
+  perform public.check_photo(uid, p_photo, p_photo_thumb, them.user_id);
   if txt is null and (p_compliment is null or p_compliment not between 0 and 11) then raise exception 'GONE'; end if;
   insert into public.bonbons (sender_id, recipient_id, sender_pseudo, sender_home_city,
-                              sender_current_city, recipient_pseudo, compliment_id, custom_text, effect, voice_path)
+                              sender_current_city, recipient_pseudo, compliment_id, custom_text, effect, voice_path,
+                              photo_path, photo_thumb)
   values (uid, them.user_id, me.pseudo, me.home_city, me.current_city, them.pseudo,
           case when txt is null then p_compliment end, txt,
           case when public.is_premium(uid) and p_effect between 0 and 3 then p_effect else 0 end,
-          nullif(p_voice, ''));
+          nullif(p_voice, ''), nullif(p_photo, ''), case when nullif(p_photo, '') is not null then p_photo_thumb end);
 end $$;
 
 -- Bonbons reçus (30 derniers jours)
@@ -455,7 +480,8 @@ create or replace function public.inbox()
 returns table (id uuid, sender_pseudo text, sender_home_city text, local boolean,
                compliment_id int, status text, created_at timestamptz,
                is_reply boolean, replied boolean, can_reply boolean, custom_text text, effect int,
-               has_voice boolean, voice_heard boolean)
+               has_voice boolean, voice_heard boolean,
+               has_photo boolean, photo_seen boolean, photo_thumb text)
 language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid();
 begin
@@ -472,7 +498,12 @@ begin
           and not public.blocked_between(uid, b.sender_id)),
          b.custom_text, b.effect,
          b.voice_path is not null,
-         b.voice_gone or b.voice_opened_at is not null or b.created_at < now() - interval '24 hours'
+         b.voice_gone or b.voice_opened_at is not null or b.created_at < now() - interval '24 hours',
+         b.photo_path is not null,
+         b.photo_gone or b.photo_opened_at is not null or b.created_at < now() - interval '24 hours',
+         case when b.photo_path is not null and not b.photo_gone and b.photo_opened_at is null
+                   and b.status <> 'reported' and b.created_at > now() - interval '24 hours'
+              then b.photo_thumb end
   from public.bonbons b
   where b.recipient_id = uid
     and b.created_at > now() - interval '30 days'
@@ -487,8 +518,9 @@ end $$;
 drop function if exists public.reply_bonbon(uuid, int);
 drop function if exists public.reply_bonbon(uuid, int, text);
 drop function if exists public.reply_bonbon(uuid, int, text, int);
+drop function if exists public.reply_bonbon(uuid, int, text, int, text);
 create or replace function public.reply_bonbon(p_bonbon_id uuid, p_compliment int, p_custom text default null, p_effect int default 0,
-                                               p_voice text default null)
+                                               p_voice text default null, p_photo text default null, p_photo_thumb text default null)
 returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); problem text; me public.sessions%rowtype;
   orig public.bonbons%rowtype; tp public.profiles%rowtype; lim int; txt text;
@@ -509,13 +541,15 @@ begin
   then raise exception 'LIMIT'; end if;
   txt := public.check_custom(uid, p_custom, orig.sender_id);
   perform public.check_voice(uid, p_voice, orig.sender_id);
+  perform public.check_photo(uid, p_photo, p_photo_thumb, orig.sender_id);
   if txt is null and (p_compliment is null or p_compliment not between 0 and 11) then raise exception 'GONE'; end if;
   insert into public.bonbons (sender_id, recipient_id, sender_pseudo, sender_home_city,
-                              sender_current_city, recipient_pseudo, compliment_id, custom_text, reply_to, effect, voice_path)
+                              sender_current_city, recipient_pseudo, compliment_id, custom_text, reply_to, effect, voice_path,
+                              photo_path, photo_thumb)
   values (uid, orig.sender_id, me.pseudo, me.home_city, me.current_city, orig.sender_pseudo,
           case when txt is null then p_compliment end, txt, orig.id,
           case when public.is_premium(uid) and p_effect between 0 and 3 then p_effect else 0 end,
-          nullif(p_voice, ''));
+          nullif(p_voice, ''), nullif(p_photo, ''), case when nullif(p_photo, '') is not null then p_photo_thumb end);
 end $$;
 
 -- Une mini-conversation est ouverte entre deux personnes quand :
@@ -604,10 +638,11 @@ end $$;
 drop function if exists public.sent();
 create or replace function public.sent()
 returns table (id uuid, recipient_pseudo text, compliment_id int, thanked boolean, created_at timestamptz, custom_text text,
-               has_voice boolean, voice_heard boolean)
+               has_voice boolean, voice_heard boolean, has_photo boolean, photo_seen boolean)
 language sql security definer set search_path = public as $$
   select b.id, b.recipient_pseudo, b.compliment_id, b.status = 'thanked', b.created_at, b.custom_text,
-         b.voice_path is not null, b.voice_opened_at is not null
+         b.voice_path is not null, b.voice_opened_at is not null,
+         b.photo_path is not null, b.photo_opened_at is not null
   from public.bonbons b
   where b.sender_id = auth.uid() and b.created_at > now() - interval '30 days'
   order by b.created_at desc
@@ -680,15 +715,18 @@ end $$;
 
 drop function if exists public.update_settings(boolean, boolean);
 drop function if exists public.update_settings(boolean, boolean, boolean);
+drop function if exists public.update_settings(boolean, boolean, boolean, boolean);
 create or replace function public.update_settings(p_receive_on boolean default null, p_same_city_only boolean default null,
-                                                  p_accept_custom boolean default null, p_accept_voice boolean default null)
+                                                  p_accept_custom boolean default null, p_accept_voice boolean default null,
+                                                  p_accept_photo boolean default null)
 returns void language plpgsql security definer set search_path = public as $$
 begin
   update public.profiles
   set receive_on = coalesce(p_receive_on, receive_on),
       same_city_only = coalesce(p_same_city_only, same_city_only),
       accept_custom = coalesce(p_accept_custom, accept_custom),
-      accept_voice = coalesce(p_accept_voice, accept_voice)
+      accept_voice = coalesce(p_accept_voice, accept_voice),
+      accept_photo = coalesce(p_accept_photo, accept_photo)
   where id = auth.uid();
 end $$;
 
@@ -828,6 +866,72 @@ begin
   return b.voice_path;
 end $$;
 
+-- ---------- Photos : stockage privé ------------------------------------
+-- Espace « photos » : privé, 1,5 Mo max, JPEG/WebP (l'app réduit la photo et retire ses métadonnées)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('photos', 'photos', false, 1500000, array['image/jpeg', 'image/webp'])
+on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit,
+                               allowed_mime_types = excluded.allowed_mime_types;
+
+-- Lire : seulement le destinataire, pendant les 2 minutes qui suivent la révélation
+create or replace function public.photo_read_ok(p_name text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.bonbons b
+                 where b.photo_path = p_name and b.recipient_id = auth.uid() and not b.photo_gone
+                   and b.status <> 'reported'
+                   and b.photo_opened_at > now() - interval '2 minutes')
+$$;
+drop policy if exists photos_insert on storage.objects;
+create policy photos_insert on storage.objects for insert to authenticated
+  with check (bucket_id = 'photos' and public.voice_upload_ok(name));   -- même règle : Premium, son dossier
+drop policy if exists photos_select on storage.objects;
+create policy photos_select on storage.objects for select to authenticated
+  using (bucket_id = 'photos' and public.photo_read_ok(name));
+drop policy if exists photos_delete on storage.objects;
+create policy photos_delete on storage.objects for delete to authenticated
+  using (bucket_id = 'photos' and public.voice_delete_ok(name));
+
+-- Révéler une photo : une seule fois
+create or replace function public.open_photo(p_bonbon_id uuid)
+returns text language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); b public.bonbons%rowtype;
+begin
+  if uid is null then raise exception 'AUTH'; end if;
+  select * into b from public.bonbons where id = p_bonbon_id and recipient_id = uid;
+  if not found or b.photo_path is null or b.photo_gone or b.status = 'reported'
+     or b.created_at < now() - interval '24 hours'
+     or b.photo_opened_at < now() - interval '30 seconds'   -- 30 s de tolérance si le chargement a échoué
+  then raise exception 'SEEN'; end if;
+  update public.bonbons set photo_opened_at = coalesce(photo_opened_at, now()) where id = b.id;
+  return b.photo_path;
+end $$;
+
+-- Nettoyage commun (vocaux et photos), appelé par la fonction « nettoyage-vocaux » avec la clé service
+create or replace function public.media_to_delete()
+returns table (bucket text, path text) language sql stable security definer set search_path = public as $$
+  select 'vocaux', v.path from public.voices_to_delete() v
+  union all
+  select 'photos', b.photo_path from public.bonbons b
+  where b.photo_path is not null and not b.photo_gone
+    and (b.photo_opened_at < now() - interval '3 minutes'
+         or b.status = 'reported'
+         or b.created_at < now() - interval '24 hours')
+  union all
+  select 'photos', o.name from storage.objects o
+  where o.bucket_id = 'photos' and o.created_at < now() - interval '1 hour'
+    and not exists (select 1 from public.bonbons b where b.photo_path = o.name and not b.photo_gone
+                    and b.created_at > now() - interval '24 hours' and b.status <> 'reported'
+                    and (b.photo_opened_at is null or b.photo_opened_at > now() - interval '3 minutes'))
+  limit 1000
+$$;
+create or replace function public.media_deleted(p_bucket text, p_paths text[])
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if p_bucket = 'vocaux' then update public.bonbons set voice_gone = true where voice_path = any(p_paths);
+  elsif p_bucket = 'photos' then update public.bonbons set photo_gone = true where photo_path = any(p_paths);
+  end if;
+end $$;
+
 -- Nettoyage (appelé par la fonction « nettoyage-vocaux », avec la clé service) :
 -- vocaux écoutés depuis plus de 5 min, signalés, de plus de 24 h, ou fichiers orphelins.
 create or replace function public.voices_to_delete()
@@ -855,16 +959,16 @@ revoke execute on all functions in schema public from public, anon;
 grant execute on function
   public.my_status(), public.confirm_adult(),
   public.start_session(text, text[], text, text, text), public.end_session(),
-  public.discover(), public.send_bonbon(uuid, int, text, int, text), public.open_voice(uuid),
+  public.discover(), public.send_bonbon(uuid, int, text, int, text, text, text), public.open_voice(uuid), public.open_photo(uuid), public.photo_read_ok(text),
   public.voice_upload_ok(text), public.voice_read_ok(text), public.voice_delete_ok(text),
   public.inbox(), public.sent(), public.thank_bonbon(uuid),
-  public.report(text, uuid, uuid), public.block_only(uuid, uuid), public.update_bio(text), public.update_settings(boolean, boolean, boolean, boolean),
-  public.set_avatar(int), public.my_premium_code(), public.restore_premium(text), public.reply_bonbon(uuid, int, text, int, text), public.conversations(), public.thread(uuid), public.send_phrase(uuid, int),
+  public.report(text, uuid, uuid), public.block_only(uuid, uuid), public.update_bio(text), public.update_settings(boolean, boolean, boolean, boolean, boolean),
+  public.set_avatar(int), public.my_premium_code(), public.restore_premium(text), public.reply_bonbon(uuid, int, text, int, text, text, text), public.conversations(), public.thread(uuid), public.send_phrase(uuid, int),
   public.delete_account()
 to authenticated;
-revoke execute on function public.text_problem(text, boolean), public.city_ready(text), public.chat_open(uuid, uuid), public.daily_limit_for(uuid), public.check_voice(uuid, text, uuid),
+revoke execute on function public.text_problem(text, boolean), public.city_ready(text), public.chat_open(uuid, uuid), public.daily_limit_for(uuid), public.check_voice(uuid, text, uuid), public.check_photo(uuid, text, text, uuid),
   public.is_premium(uuid), public.check_custom(uuid, text, uuid), public.new_recovery_code() from authenticated;
-revoke execute on function public.voices_to_delete(), public.voices_deleted(text[]) from authenticated;
-grant execute on function public.voices_to_delete(), public.voices_deleted(text[]) to service_role;
+revoke execute on function public.voices_to_delete(), public.voices_deleted(text[]), public.media_to_delete(), public.media_deleted(text, text[]) from authenticated;
+grant execute on function public.voices_to_delete(), public.voices_deleted(text[]), public.media_to_delete(), public.media_deleted(text, text[]) to service_role;
 revoke execute on function public.handle_new_user(), public.access_problem(uuid),
   public.blocked_between(uuid, uuid) from authenticated;

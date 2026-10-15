@@ -1,7 +1,7 @@
 // =====================================================================
-// Petit Bonbon — nettoyage des notes vocales
-// Supprime du stockage « vocaux » les fichiers qui ne doivent plus exister :
-//   - écoutés depuis plus de 5 minutes (écoute unique),
+// Petit Bonbon — nettoyage des notes vocales et des photos
+// Supprime des stockages « vocaux » et « photos » les fichiers qui ne doivent plus exister :
+//   - vocaux écoutés depuis plus de 5 minutes, photos révélées depuis plus de 3 minutes,
 //   - signalés,
 //   - jamais écoutés au bout de 24 heures,
 //   - orphelins (envoi annulé, compte supprimé).
@@ -27,20 +27,26 @@ Deno.serve(async (req) => {
     auth: { persistSession: false },
   });
   try {
-    const { data, error } = await admin.rpc('voices_to_delete');
+    const { data, error } = await admin.rpc('media_to_delete');
     if (error) throw error;
-    const paths: string[] = (data || []).map((r: { path: string }) => r.path).filter(Boolean);
-    if (paths.length) {
+    const byBucket = new Map<string, string[]>();
+    for (const r of (data || []) as { bucket: string; path: string }[]) {
+      if (!r.path) continue;
+      if (!byBucket.has(r.bucket)) byBucket.set(r.bucket, []);
+      byBucket.get(r.bucket)!.push(r.path);
+    }
+    let count = 0;
+    for (const [bucket, paths] of byBucket) {
       // Le stockage accepte des lots ; on supprime par paquets de 100
       for (let i = 0; i < paths.length; i += 100) {
-        const batch = paths.slice(i, i + 100);
-        const { error: e2 } = await admin.storage.from('vocaux').remove(batch);
+        const { error: e2 } = await admin.storage.from(bucket).remove(paths.slice(i, i + 100));
         if (e2) throw e2;
       }
-      const { error: e3 } = await admin.rpc('voices_deleted', { p_paths: paths });
+      const { error: e3 } = await admin.rpc('media_deleted', { p_bucket: bucket, p_paths: paths });
       if (e3) throw e3;
+      count += paths.length;
     }
-    return new Response(JSON.stringify({ deleted: paths.length }), {
+    return new Response(JSON.stringify({ deleted: count }), {
       headers: { ...cors, 'Content-Type': 'application/json' },
     });
   } catch (e) {

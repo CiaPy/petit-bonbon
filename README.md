@@ -74,9 +74,10 @@ Stripe › **Développeurs › Webhooks** › ta destination › ajoute les év�
 `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`.
 (Si tu n'as pas encore de webhook : URL `https://<ID-DU-PROJET>.supabase.co/functions/v1/stripe-webhook`, puis secret `whsec_…` › Supabase › Edge Functions › Secrets › `STRIPE_WEBHOOK_SECRET`.)
 
-### P3 bis. Notes vocales
-1. Relancer `supabase/schema.sql` : il crée l'espace de stockage privé `vocaux` et ses règles d'accès.
-2. Supabase › **Edge Functions** › nouvelle fonction **`nettoyage-vocaux`** avec le code de `supabase/functions/nettoyage-vocaux/index.ts` (« Verify JWT » peut rester activé), puis **Deploy**.
+### P3 bis. Notes vocales et photos floues
+1. Relancer `supabase/schema.sql` : il crée les espaces de stockage privés `vocaux` et `photos` et leurs règles d'accès.
+2. Supabase › **Edge Functions** › fonction **`nettoyage-vocaux`** avec le code de `supabase/functions/nettoyage-vocaux/index.ts` (« Verify JWT » peut rester activé), puis **Deploy**. Elle efface les vocaux et les photos.
+3. Le filtre anti-nudité ([NSFWJS](https://github.com/infinitered/nsfwjs), licence MIT) est hébergé dans `vendor/nsfw/` et ne se charge qu'au moment d'ajouter une photo.
 L'app appelle cette fonction elle-même : aucun réglage de tâche planifiée n'est nécessaire.
 
 ### P4. Tester avant d'ouvrir
@@ -156,8 +157,8 @@ supabase/functions/stripe-webhook/index.ts   déblocage après paiement
 
 ## Feuille de route Premium (pas encore développé)
 
-**Premium v1 (en place)** : mots personnalisés filtrés, notes vocales (15 s, écoutables une fois), bonbons animés (cœurs, étoiles, confettis), 25 bonbons par jour, 12 phrases et 6 humeurs en plus (2 humeurs à la fois), bio de 160 caractères, avatars pixel, thèmes de couleur, tarif réduit aux rencontres.
-**Premium v2 (à venir)** : photo éphémère, discussion libre.
+**Premium v1 (en place)** : mots personnalisés filtrés, notes vocales (15 s, écoutables une fois), photos floues (révélées 10 s, une fois), bonbons animés (cœurs, étoiles, confettis), 25 bonbons par jour, 12 phrases et 6 humeurs en plus (2 humeurs à la fois), bio de 160 caractères, avatars pixel, thèmes de couleur, tarif réduit aux rencontres.
+**Premium v2 (à venir)** : musique (lien Spotify ou Apple Music en lecteur intégré), discussion libre.
 
 **Discussion libre (Premium)** : prolongement des petits échanges à phrases toutes faites. Ne s'ouvre que si les **deux** personnes l'acceptent explicitement, uniquement entre abonnés. Filtre automatique (contacts, liens, insultes, contenus sexuels) avant réception, signalement en un geste, file de modération humaine. Aucun lien ni numéro autorisé, même en Premium.
 

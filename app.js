@@ -68,6 +68,7 @@ const PREMIUM_FEATURES = [
   { short: 'Mon propre mot', long: 'Écrire tes propres mots (filtrés, 140 caractères)' },
   { short: 'Bonbons animés', long: 'Des bonbons qui s’ouvrent en cœurs, étoiles ou confettis' },
   { short: 'Notes vocales', long: 'Une note vocale de 15 s avec ton bonbon, écoutable une seule fois' },
+  { short: 'Photos floues', long: 'Une photo qui arrive floutée et se révèle 10 secondes, une seule fois' },
   { short: 'Plus de bonbons', long: '25 bonbons à offrir par jour au lieu de 10' },
   { short: 'Plus de mots', long: '12 petites phrases en plus dans les échanges' },
   { short: 'Plus d’humeurs', long: '6 humeurs en plus, et 2 humeurs à la fois' },
@@ -76,9 +77,10 @@ const PREMIUM_FEATURES = [
   { short: 'Thèmes', long: 'Des thèmes de couleur pour ton app' },
   { short: 'Rencontres', long: 'Tarif réduit aux rencontres live, dès qu’elles commencent' },
 ];
-const PREMIUM_SOON = 'Bientôt aussi : les photos éphémères.';
+const PREMIUM_SOON = 'D’autres petites surprises arrivent bientôt.';
+const PHOTO_SECONDS = 10; // durée de la révélation
 const VOICE_MAX = 15; // secondes
-const LOCKED_CHIPS = ['Mon propre mot', 'Bonbon animé', 'Note vocale', 'Photo'];
+const LOCKED_CHIPS = ['Mon propre mot', 'Bonbon animé', 'Note vocale', 'Photo floue'];
 
 // Avatars en pixel art (Premium). a = couleur, b = clair, c = foncé, w = blanc
 const PIXEL_AVATARS = [
@@ -124,6 +126,8 @@ const ERRORS = {
   PREMIUM: 'Cette option fait partie de Premium.',
   NO_VOICE: 'Cette personne préfère ne pas recevoir de notes vocales. Retire la note pour envoyer ton bonbon.',
   HEARD: 'Cette note vocale a déjà été écoutée. Elle n’existe plus.',
+  NO_PHOTO: 'Cette personne préfère ne pas recevoir de photos. Retire la photo pour envoyer ton bonbon.',
+  SEEN: 'Cette photo a déjà été vue. Elle n’existe plus.',
   NO_CUSTOM: 'Cette personne préfère recevoir les compliments de la liste.',
   BAD_CODE: 'Ce code ne correspond à aucun Premium. Vérifie-le et réessaie.',
   TOO_MANY: 'Trop d’essais. Réessaie dans une heure.',
@@ -524,6 +528,7 @@ V.tab_send = () => {
               <textarea id="custom" name="custom" rows="3" maxlength="140" placeholder="Il remplace le compliment choisi au-dessus">${esc(S.custom)}</textarea>
               <span class="small">140 caractères. Bienveillant, sans numéro, réseau social ni lien : il est vérifié avant d’arriver.</span></div>`)
         + (t.accepts_voice === false ? '' : V.voiceBox())
+        + (t.accepts_photo === false ? '' : V.photoBox())
         + `<div class="stack" style="gap:10px">
               <span class="label" style="padding:0 4px">Animation à l’ouverture <span style="color:var(--pink-deep)">· Premium</span></span>
               <div class="chips">${EFFECTS.map((e, i) => `<button type="button" class="chip" aria-pressed="${(S.effect || 0) === i}" data-a="pickEffect" data-i="${i}">${esc(e)}</button>`).join('')}</div>
@@ -557,6 +562,22 @@ V.voiceBox = () => {
   </div>`;
 };
 
+// Photo à joindre (Premium) : elle arrivera floutée
+V.photoBox = () => {
+  const ph = S.photo || {};
+  let inner;
+  if (ph.checking) inner = `<p class="small" style="margin:0">Vérification de la photo…</p>`;
+  else if (ph.url) inner = `<div class="photo-preview"><img src="${ph.url}" alt="Ta photo" draggable="false"></div>
+      <div class="row"><label class="btn small ghost" for="photo-input">Changer</label><button type="button" class="link muted" data-a="dropPhoto">Retirer la photo</button></div>`;
+  else inner = `<label class="btn small soft" for="photo-input" style="align-self:flex-start">📷 Ajouter une photo</label>`;
+  return `<div class="stack" style="gap:10px">
+    <span class="label" style="padding:0 4px">Photo floue <span style="color:var(--pink-deep)">· Premium</span></span>
+    ${inner}
+    <input type="file" id="photo-input" accept="image/*" hidden>
+    <span class="small">Elle arrive floutée. La personne choisit de la révéler, nette pendant ${PHOTO_SECONDS} secondes, une seule fois. Pas de nudité : chaque photo est vérifiée sur ton téléphone.</span>
+  </div>`;
+};
+
 V.tab_sentok = () => `<section class="screen center">
   ${candy('#1D6B5E', 120)}
   <h2>Ton bonbon est parti</h2>
@@ -577,6 +598,9 @@ V.tab_inbox = () => {
       <span class="context">${m.local ? 'Vous êtes dans la même ville, mais vous ne vous connaissez pas.' : `Un inconnu de passage à ${esc(city)}, venu de ${esc(m.sender_home_city)}.`}</span>
       <p class="quote">« ${esc(m.custom_text || COMPLIMENTS[m.compliment_id] || '')} »</p>
       <span class="small">— ${esc(m.sender_pseudo)} · ${timeAgo(m.created_at)}${m.is_reply ? ' · <strong>en réponse à ton bonbon</strong>' : ''}${m.custom_text ? ' · mot personnalisé' : ''}</span>
+      ${m.has_photo && m.status !== 'reported' ? (!m.photo_seen && m.photo_thumb
+        ? `<button class="photo-blur" data-a="revealPhoto" data-id="${esc(m.id)}" ${S.revealing ? 'disabled' : ''}><img src="${esc(m.photo_thumb)}" alt="" draggable="false"><span>${S.revealing === m.id ? 'Ouverture…' : `👁 Révéler la photo · ${PHOTO_SECONDS} s`}</span></button>`
+        : '<span class="small">📷 Photo vue (elle n’existe plus)</span>') : ''}
       ${m.has_voice && m.status !== 'reported' ? (m.voice_heard
         ? '<span class="small">🎙 Note vocale écoutée (elle n’existe plus)</span>'
         : `<button class="btn small dark" style="align-self:flex-start" data-a="playVoice" data-id="${esc(m.id)}" ${S.playing ? 'disabled' : ''}>${S.playing === m.id ? '🎙 Lecture en cours…' : '🎙 Écouter la note vocale · une seule fois'}</button>`) : ''}
@@ -591,7 +615,7 @@ V.tab_inbox = () => {
     : `<div class="empty">${candy('#E2CFCB', 64)}<span>Pas encore de bonbon. Garde l’app ouverte, on te prévient dès qu’un compliment arrive.</span></div>`;
   const sent = S.sent.length ? `<h3 style="margin:12px 4px 0">Tes bonbons envoyés</h3>` + S.sent.map((m) => `<div class="card" style="gap:6px;padding:14px 16px">
       <span style="font-size:15px">« ${esc(m.custom_text || COMPLIMENTS[m.compliment_id] || '')} » à <strong>${esc(m.recipient_pseudo)}</strong></span>
-      <span class="small">${timeAgo(m.created_at)}${m.has_voice ? (m.voice_heard ? ' · 🎙 note écoutée' : ' · 🎙 note pas encore écoutée') : ''}${m.thanked ? ' · <strong style="color:var(--accent-deep)">Merci reçu</strong>' : ''}</span>
+      <span class="small">${timeAgo(m.created_at)}${m.has_voice ? (m.voice_heard ? ' · 🎙 note écoutée' : ' · 🎙 note pas encore écoutée') : ''}${m.has_photo ? (m.photo_seen ? ' · 📷 photo vue' : ' · 📷 photo pas encore vue') : ''}${m.thanked ? ' · <strong style="color:var(--accent-deep)">Merci reçu</strong>' : ''}</span>
     </div>`).join('') : '';
   const convs = S.convs.length ? `<h3 style="margin:0 4px">Vos petits échanges</h3>` + S.convs.map((c) => `<button class="card conv" data-a="openChat" data-sid="${esc(c.session_id)}">
       <span class="row" style="justify-content:space-between;width:100%"><strong style="font-size:18px">${esc(c.pseudo)}</strong>${convUnread(c) ? '<span class="dot-new" aria-label="Nouveau message"></span>' : ''}</span>
@@ -653,6 +677,7 @@ V.tab_me = () => {
       ${tg('receive_on', 'Recevoir des bonbons', 'Si c’est coupé, tu n’apparais plus dans « Découvrir ».')}
       ${tg('accept_custom', 'Recevoir des mots personnalisés', 'Écrits par des membres Premium, vérifiés avant d’arriver.')}
       ${tg('accept_voice', 'Recevoir des notes vocales', 'Envoyées par des membres Premium, écoutables une seule fois.')}
+      ${tg('accept_photo', 'Recevoir des photos floues', 'Envoyées par des membres Premium, révélées 10 secondes si tu le choisis.')}
     </div>
     <div class="card" style="padding:6px 18px;gap:0">
       <span class="small" style="padding-top:12px">Sons</span>
@@ -967,6 +992,122 @@ function cleanupVoices(force) {
   else run();
 }
 
+// ---------- Photos floues (Premium) -----------------------------------
+// La photo est réduite et ré-encodée sur le téléphone (ce qui retire sa position GPS
+// et ses autres métadonnées), vérifiée par un filtre anti-nudité qui tourne sur le
+// téléphone, puis envoyée avec un aperçu minuscule qui ne montre que des couleurs.
+let nsfwModel = null;
+function loadNsfw() {
+  if (nsfwModel) return nsfwModel;
+  nsfwModel = new Promise((resolve, reject) => {
+    const go = () => window.nsfwjs.load('./vendor/nsfw/model/model.json').then(resolve, reject);
+    if (window.nsfwjs) return go();
+    const sc = document.createElement('script');
+    sc.src = './vendor/nsfw/nsfwjs.min.js';
+    sc.onload = go; sc.onerror = () => reject(new Error('NSFW_LOAD'));
+    document.head.appendChild(sc);
+  }).catch((e) => { nsfwModel = null; throw e; });
+  return nsfwModel;
+}
+function dropPhotoNow() {
+  if (S.photo && S.photo.url) URL.revokeObjectURL(S.photo.url);
+  S.photo = null;
+}
+const canvasBlob = (c, q) => new Promise((res) => c.toBlob(res, 'image/jpeg', q));
+async function decodeImage(file) {
+  if (window.createImageBitmap) {
+    try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (_) {}
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    return img;
+  } finally { URL.revokeObjectURL(url); }
+}
+async function handlePhoto(file) {
+  if (!isPremium()) return A.openPremium();
+  if (!/^image\//.test(file.type || 'image/')) return toast('Choisis une image.');
+  dropPhotoNow();
+  const mine = { checking: true };
+  S.photo = mine; render();
+  try {
+    const img = await decodeImage(file);
+    const w0 = img.width, h0 = img.height, k = Math.min(1, 1280 / Math.max(w0, h0));
+    const c = document.createElement('canvas');
+    c.width = Math.round(w0 * k); c.height = Math.round(h0 * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    // Filtre anti-nudité (sur le téléphone, rien n'est envoyé pour la vérification)
+    let preds;
+    try { preds = await (await loadNsfw()).classify(c); }
+    catch (_) { throw new Error('La vérification de la photo n’a pas pu se faire. Vérifie ta connexion et réessaie.'); }
+    const p = Object.fromEntries(preds.map((x) => [x.className, x.probability]));
+    if ((p.Porn || 0) + (p.Hentai || 0) > 0.4 || (p.Sexy || 0) > 0.6) {
+      throw new Error('Cette photo ne peut pas être envoyée : pas de nudité ni de photo suggestive sur Petit Bonbon.');
+    }
+    const blob = await canvasBlob(c, 0.82);
+    // Aperçu flou : 16 pixels de large, on n'y devine que des couleurs
+    const t = document.createElement('canvas');
+    t.width = 16; t.height = Math.max(1, Math.round(16 * c.height / c.width));
+    t.getContext('2d').drawImage(c, 0, 0, t.width, t.height);
+    const thumb = t.toDataURL('image/jpeg', 0.5);
+    if (S.photo !== mine) return;
+    S.photo = { blob, url: URL.createObjectURL(blob), thumb };
+  } catch (e) {
+    if (S.photo === mine) S.photo = null;
+    toast(e && e.message && !/^[A-Z_]+$/.test(e.message) ? e.message : 'Cette photo ne peut pas être utilisée.');
+  }
+  render();
+}
+async function uploadPhoto(blob) {
+  const path = `${S.user.id}/${crypto.randomUUID()}.jpg`;
+  const { error } = await sb.storage.from('photos').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+  if (error) throw error;
+  return path;
+}
+async function revealPhotoOnce(id) {
+  if (S.revealing) return;
+  S.revealing = id; render();
+  let url = null;
+  try {
+    const path = await rpc('open_photo', { p_bonbon_id: id });
+    const { data, error } = await sb.storage.from('photos').download(path);
+    if (error) throw error;
+    url = URL.createObjectURL(data);
+  } catch (e) {
+    toast(errMsg(e));
+    S.revealing = null;
+    if (/SEEN/.test((e && e.message) || '')) { const m = S.inbox.find((x) => x.id === id); if (m) m.photo_seen = true; }
+    return render();
+  }
+  const view = document.createElement('div');
+  view.className = 'photo-view';
+  view.setAttribute('role', 'dialog');
+  view.setAttribute('aria-label', 'Photo, visible ' + PHOTO_SECONDS + ' secondes');
+  view.innerHTML = `<img src="${url}" alt="Photo reçue" draggable="false"><div class="photo-count"><span id="photo-secs">${PHOTO_SECONDS}</span><small>Touche pour fermer</small></div>`;
+  document.body.appendChild(view);
+  const t0 = Date.now();
+  let closed = false;
+  const close = () => {
+    if (closed) return; closed = true;
+    clearInterval(tick);
+    document.removeEventListener('visibilitychange', onHide);
+    view.remove(); URL.revokeObjectURL(url);
+    const m = S.inbox.find((x) => x.id === id);
+    if (m) { m.photo_seen = true; m.photo_thumb = null; }
+    S.revealing = null; render();
+    cleanupVoices(true);
+  };
+  const onHide = () => { if (document.hidden) close(); };   // quitter l'app referme la photo
+  document.addEventListener('visibilitychange', onHide);
+  view.addEventListener('click', close);
+  const tick = setInterval(() => {
+    const left = PHOTO_SECONDS - Math.floor((Date.now() - t0) / 1000);
+    const el = document.getElementById('photo-secs'); if (el) el.textContent = String(Math.max(0, left));
+    if (left <= 0) close();
+  }, 200);
+}
+
 // ---------- Bonbons animés (Premium) -----------------------------------
 // Des petites formes en pixel art qui jaillissent à l'ouverture d'un bonbon.
 const FX_SHAPES = {
@@ -1129,16 +1270,18 @@ const A = {
     if (d.tab === 'discover' || d.tab === 'inbox') loadData();
   },
   refresh() { S.cardMenu = null; S.peopleLoaded = false; render(); loadData(); },
-  pickTarget(d) { dropVoiceNow(); S.target = S.people[+d.i]; S.pick = 0; S.custom = ''; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0); },
+  pickTarget(d) { dropVoiceNow(); dropPhotoNow(); S.target = S.people[+d.i]; S.pick = 0; S.custom = ''; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0); },
   pick(d) { S.pick = +d.i; render(); },
   recVoice() { startRecording(); },
   stopVoice() { stopRecording(); },
   dropVoice() { dropVoiceNow(); render(); },
   playVoice(d) { playVoiceOnce(d.id); },
+  dropPhoto() { dropPhotoNow(); render(); },
+  revealPhoto(d) { revealPhotoOnce(d.id); },
   pickEffect(d) { S.effect = +d.i; render(); if (S.effect) playEffect(S.effect); },
   replyBonbon(d) {
     const m = S.inbox.find((x) => x.id === d.id); if (!m) return;
-    dropVoiceNow();
+    dropVoiceNow(); dropPhotoNow();
     S.target = { pseudo: m.sender_pseudo, local: m.local, home_city: m.sender_home_city, reply_id: m.id };
     S.pick = 0; S.custom = ''; S.error = ''; S.tab = 'send'; render(); window.scrollTo(0, 0);
   },
@@ -1163,15 +1306,23 @@ const A = {
       const custom = isPremium() && S.custom.trim() ? S.custom.trim() : null;
       const effect = isPremium() ? (S.effect || 0) : 0;
       if (S.voice && S.voice.recording) stopRecording();
+      if (S.photo && S.photo.checking) throw new Error('Attends la fin de la vérification de la photo.');
       const voice = isPremium() && S.voice && S.voice.blob ? await uploadVoice(S.voice.blob) : null;
+      let photo = null;
+      try { photo = isPremium() && S.photo && S.photo.blob ? await uploadPhoto(S.photo.blob) : null; }
+      catch (e) { if (voice) sb.storage.from('vocaux').remove([voice]).catch(() => {}); throw e; }
+      const thumb = photo ? S.photo.thumb : null;
       try {
-        if (S.target.reply_id) await rpc('reply_bonbon', { p_bonbon_id: S.target.reply_id, p_compliment: S.pick, p_custom: custom, p_effect: effect, p_voice: voice });
-        else await rpc('send_bonbon', { p_session_id: S.target.session_id, p_compliment: S.pick, p_custom: custom, p_effect: effect, p_voice: voice });
+        const extra = { p_custom: custom, p_effect: effect, p_voice: voice, p_photo: photo, p_photo_thumb: thumb };
+        if (S.target.reply_id) await rpc('reply_bonbon', { p_bonbon_id: S.target.reply_id, p_compliment: S.pick, ...extra });
+        else await rpc('send_bonbon', { p_session_id: S.target.session_id, p_compliment: S.pick, ...extra });
       } catch (e) {
         if (voice) sb.storage.from('vocaux').remove([voice]).catch(() => {});
+        if (photo) sb.storage.from('photos').remove([photo]).catch(() => {});
         throw e;
       }
       if (voice) dropVoiceNow();
+      if (photo) dropPhotoNow();
       if (effect) setTimeout(() => playEffect(effect), 150);
       S.lastSentText = custom || COMPLIMENTS[S.pick];
       S.custom = '';
@@ -1243,7 +1394,7 @@ const A = {
     const key = d.key, val = !S.status[key];
     S.status[key] = val; render();
     try {
-      await rpc('update_settings', { p_receive_on: key === 'receive_on' ? val : null, p_same_city_only: key === 'same_city_only' ? val : null, p_accept_custom: key === 'accept_custom' ? val : null, p_accept_voice: key === 'accept_voice' ? val : null });
+      await rpc('update_settings', { p_receive_on: key === 'receive_on' ? val : null, p_same_city_only: key === 'same_city_only' ? val : null, p_accept_custom: key === 'accept_custom' ? val : null, p_accept_voice: key === 'accept_voice' ? val : null, p_accept_photo: key === 'accept_photo' ? val : null });
     } catch (e) { S.status[key] = !val; render(); toast(errMsg(e)); }
   },
   editIdentity() {
@@ -1392,6 +1543,9 @@ document.addEventListener('submit', (e) => {
   const fn = F[form.dataset.f];
   if (fn) fn(form);
 });
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'photo-input' && e.target.files && e.target.files[0]) { const f = e.target.files[0]; e.target.value = ''; handlePhoto(f); }
+});
 document.addEventListener('input', (e) => {
   if (e.target.id === 'custom') S.custom = e.target.value;
   const k = e.target.dataset && e.target.dataset.bind;
@@ -1407,7 +1561,7 @@ window.addEventListener('blur', () => veil(true));
 window.addEventListener('focus', () => veil(false));
 window.addEventListener('pagehide', () => veil(true));
 window.addEventListener('pageshow', () => veil(false));
-document.addEventListener('contextmenu', (e) => { if (e.target.closest('.card, .quote, .bio')) e.preventDefault(); });
+document.addEventListener('contextmenu', (e) => { if (e.target.closest('.card, .quote, .bio, .photo-view')) e.preventDefault(); });
 document.addEventListener('copy', (e) => { if (window.getSelection && e.target.closest && e.target.closest('.card')) e.preventDefault(); });
 
 document.addEventListener('keydown', (e) => {
