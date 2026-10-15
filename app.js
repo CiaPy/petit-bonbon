@@ -63,7 +63,7 @@ const PHRASES_FREE = 12; // les phrases à partir de cet indice sont réservées
 const EFFECTS = ['Sans animation', 'Pluie de cœurs', 'Étoiles', 'Confettis'];
 const REASONS = ['Message ou profil déplacé', 'Contenu sexuel', 'Je pense que c’est un·e mineur·e', 'Insistance ou harcèlement', 'Autre chose me met mal à l’aise'];
 // Options réservées à l'abonnement Premium (pas encore disponibles)
-const PREMIUM_PRICE = '2,99 € / mois';
+const PREMIUM_PRICE = '0,99 € / mois';
 const PREMIUM_FEATURES = [
   { short: 'Mon propre mot', long: 'Écrire tes propres mots (filtrés, 140 caractères)' },
   { short: 'Bonbons animés', long: 'Des bonbons qui s’ouvrent en cœurs, étoiles ou confettis' },
