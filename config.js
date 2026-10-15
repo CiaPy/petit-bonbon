@@ -19,7 +19,7 @@ window.PB_CONFIG = {
   // Lien de paiement de l'abonnement mensuel (https://buy.stripe.com/…)
   PREMIUM_PAYMENT_LINK: "https://buy.stripe.com/test_5kQcN59Dy3K28lIb8haAw00",
   // Lien de connexion du portail client Stripe, pour gérer / résilier (https://billing.stripe.com/p/login/…)
-  PREMIUM_PORTAL_LINK: "",
+  PREMIUM_PORTAL_LINK: "https://billing.stripe.com/p/login/test_5kQcN59Dy3K28lIb8haAw00",
 
   // Adresse affichée pour le contact et les signalements urgents
   CONTACT_EMAIL: "petitbonbon-app@proton.me",
