@@ -1,0 +1,16 @@
+Copyright © 2026 Petit Bonbon. Tous droits réservés.
+
+Le code source, les textes, les visuels (dont le bonbon en pixel art, les avatars
+et les animations), les sons et le nom « Petit Bonbon » sont protégés par le droit
+d'auteur et le droit des marques.
+
+Ce dépôt est public uniquement pour permettre l'hébergement de l'application.
+Sa consultation est libre, mais aucune licence n'est accordée : toute
+reproduction, modification, redistribution ou réutilisation, totale ou
+partielle, à des fins commerciales ou non, est interdite sans l'accord écrit
+préalable de l'éditeur.
+
+Contact : petitbonbon-app@proton.me
+
+Exception : les fichiers du dossier vendor/nsfw/ (NSFWJS, © Infinite Red)
+sont distribués sous leur propre licence MIT, jointe dans vendor/nsfw/LICENSE.

@@ -168,3 +168,7 @@ supabase/functions/stripe-webhook/index.ts   déblocage après paiement
 - **Aperçu obligatoire avant envoi** : la détection peut rater un visage (profil, lunettes, faible lumière). La personne voit le résultat et peut ajouter une bande à la main, ou pixeliser tout le visage.
 - **Retirer le filtre** est possible, mais doit rester un choix volontaire à chaque envoi, jamais un réglage permanent.
 - **Modération** : filtrage automatique de la nudité avant réception, signalement en un geste, et suppression des métadonnées (position GPS de la photo, modèle de téléphone).
+
+## Licence
+
+© 2026 Petit Bonbon. Tous droits réservés : voir [LICENSE](LICENSE). Le dépôt est public seulement pour l'hébergement ; aucune réutilisation n'est autorisée sans accord écrit.
