@@ -192,7 +192,7 @@ const S = {
   people: [], peopleLoaded: false, inbox: [], sent: [],
   target: null, pick: 0, lastSentText: '',
   report: null,            // { bonbonId?, sessionId?, pseudo, mode?: 'block' | 'report' }
-  cardMenu: null,          // index de la carte « Autour de toi » dont le petit menu ⚠ est ouvert
+  cardMenu: null,          // carte dont le petit menu ⚠ est ouvert : 'p3' (Autour de toi) ou 'b<id>' (Reçus)
   premium: false,          // feuille « Premium » ouverte
   convs: [], chat: null, thread: [],   // mini-conversations
   custom: '', premiumMode: 'join', checkmailMsg: '', premiumCode: null,
@@ -475,8 +475,8 @@ V.tab_discover = () => {
       ? `<span class="badge local">Vous êtes tous les deux à ${esc(city)}</span>`
       : `<span class="badge away">De passage · vient de ${esc(p.home_city)}</span>`;
     return `<article class="card has-menu">
-      <button class="card-warn" data-a="cardMenu" data-i="${i}" aria-label="Bloquer ou signaler ${esc(p.pseudo)}" aria-haspopup="menu" aria-expanded="${S.cardMenu === i}">${ICON.warn}</button>
-      ${S.cardMenu === i ? `<div class="card-menu" role="menu">
+      <button class="card-warn" data-a="cardMenu" data-k="p${i}" aria-label="Bloquer ou signaler ${esc(p.pseudo)}" aria-haspopup="menu" aria-expanded="${S.cardMenu === 'p' + i}">${ICON.warn}</button>
+      ${S.cardMenu === 'p' + i ? `<div class="card-menu" role="menu">
         <button role="menuitem" data-a="askBlock" data-i="${i}">Bloquer</button>
         <button role="menuitem" data-a="askReport" data-i="${i}">Signaler</button>
       </div>` : ''}
@@ -568,7 +568,12 @@ V.tab_sentok = () => `<section class="screen center">
 
 V.tab_inbox = () => {
   const city = cityLabel(S.status);
-  const rec = S.inbox.length ? S.inbox.map((m) => `<article class="card">
+  const rec = S.inbox.length ? S.inbox.map((m) => `<article class="card${m.status !== 'reported' ? ' has-menu' : ''}">
+      ${m.status !== 'reported' ? `<button class="card-warn" data-a="cardMenu" data-k="b${esc(m.id)}" aria-label="Bloquer ou signaler ${esc(m.sender_pseudo)}" aria-haspopup="menu" aria-expanded="${S.cardMenu === 'b' + m.id}">${ICON.warn}</button>
+      ${S.cardMenu === 'b' + m.id ? `<div class="card-menu" role="menu">
+        <button role="menuitem" data-a="askBlock" data-id="${esc(m.id)}">Bloquer</button>
+        <button role="menuitem" data-a="askReport" data-id="${esc(m.id)}">Signaler</button>
+      </div>` : ''}` : ''}
       <span class="context">${m.local ? 'Vous êtes dans la même ville, mais vous ne vous connaissez pas.' : `Un inconnu de passage à ${esc(city)}, venu de ${esc(m.sender_home_city)}.`}</span>
       <p class="quote">« ${esc(m.custom_text || COMPLIMENTS[m.compliment_id] || '')} »</p>
       <span class="small">— ${esc(m.sender_pseudo)} · ${timeAgo(m.created_at)}${m.is_reply ? ' · <strong>en réponse à ton bonbon</strong>' : ''}${m.custom_text ? ' · mot personnalisé' : ''}</span>
@@ -578,7 +583,6 @@ V.tab_inbox = () => {
       ${m.status !== 'reported' ? `<div class="row">
           ${m.can_reply ? `<button class="btn small" data-a="replyBonbon" data-id="${esc(m.id)}">Renvoyer un bonbon</button>` : ''}
           ${m.status === 'open' ? `<button class="btn small soft" data-a="thank" data-id="${esc(m.id)}">Dire merci</button>` : ''}
-          <button class="link muted" style="font-size:14px" data-a="reportBonbon" data-id="${esc(m.id)}">Bloquer / signaler</button>
         </div>` : ''}
       ${m.replied ? '<span class="small" style="color:var(--accent-deep);font-weight:700">Tu lui as renvoyé un bonbon.</span>' : ''}
       ${m.status === 'thanked' && !m.replied ? '<span class="small" style="color:var(--accent-deep);font-weight:700">Merci envoyé.</span>' : ''}
@@ -1076,6 +1080,12 @@ async function poll() {
 setInterval(poll, 20000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
 
+// Qui bloquer ou signaler : une personne d'« Autour de toi » (d.i) ou l'auteur d'un bonbon reçu (d.id)
+function reportTarget(d) {
+  if (d.id) { const m = S.inbox.find((x) => x.id === d.id); return { bonbonId: d.id, pseudo: m ? m.sender_pseudo : 'Cette personne' }; }
+  const p = S.people[+d.i]; return { sessionId: p.session_id, pseudo: p.pseudo };
+}
+
 const A = {
   goWelcome() { S.view = 'welcome'; S.error = ''; render(); },
   goAuth(d) { S.view = 'auth'; S.authMode = d.mode; S.error = ''; render(); },
@@ -1173,9 +1183,9 @@ const A = {
   },
   reportBonbon(d) { const m = S.inbox.find((x) => x.id === d.id); S.report = { bonbonId: d.id, pseudo: m ? m.sender_pseudo : 'Cette personne' }; render(); },
   reportSession(d) { const p = S.people[+d.i]; S.report = { sessionId: p.session_id, pseudo: p.pseudo }; render(); },
-  cardMenu(d) { S.cardMenu = S.cardMenu === +d.i ? null : +d.i; render(); },
-  askBlock(d) { const p = S.people[+d.i]; S.cardMenu = null; S.report = { sessionId: p.session_id, pseudo: p.pseudo, mode: 'block' }; render(); },
-  askReport(d) { const p = S.people[+d.i]; S.cardMenu = null; S.report = { sessionId: p.session_id, pseudo: p.pseudo, mode: 'report' }; render(); },
+  cardMenu(d) { S.cardMenu = S.cardMenu === d.k ? null : d.k; render(); },
+  askBlock(d) { S.cardMenu = null; S.report = { ...reportTarget(d), mode: 'block' }; render(); },
+  askReport(d) { S.cardMenu = null; S.report = { ...reportTarget(d), mode: 'report' }; render(); },
   closeReport() { S.report = null; render(); },
   async blockOnly() {
     const r = S.report; S.report = null;

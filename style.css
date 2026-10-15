@@ -161,7 +161,7 @@ h3 { font-size: 13px; line-height: 1.6; }
 
 /* Petit signe ⚠ en haut à droite : ouvre « Bloquer / Signaler » */
 .card.has-menu { position: relative; }
-.card.has-menu .person { padding-right: 36px; }
+.card.has-menu .person, .card.has-menu > .context { padding-right: 36px; }
 .card-warn { position: absolute; top: 8px; right: 8px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--muted); cursor: pointer; opacity: .75; }
 .card-warn:hover, .card-warn[aria-expanded="true"] { opacity: 1; }
 .card-warn:focus-visible { outline: 2px solid var(--muted); outline-offset: -2px; }
