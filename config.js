@@ -17,7 +17,7 @@ window.PB_CONFIG = {
 
   // Premium (Stripe Billing) — voir README, « Premium »
   // Lien de paiement de l'abonnement mensuel (https://buy.stripe.com/…)
-  PREMIUM_PAYMENT_LINK: "",
+  PREMIUM_PAYMENT_LINK: "https://buy.stripe.com/test_5kQcN59Dy3K28lIb8haAw00",
   // Lien de connexion du portail client Stripe, pour gérer / résilier (https://billing.stripe.com/p/login/…)
   PREMIUM_PORTAL_LINK: "",
 
