@@ -608,7 +608,13 @@ V.tab_chat = () => {
   return `<div class="scroll chat">
     <div class="row" style="justify-content:space-between">
       <button class="link muted" data-a="tab" data-tab="inbox" style="display:flex;align-items:center;gap:6px">${ICON.back}Retour</button>
-      <button class="link muted" style="font-size:14px" data-a="reportChat">Bloquer / signaler</button>
+      <span class="warn-wrap">
+        <button class="card-warn" data-a="cardMenu" data-k="chat" aria-label="Bloquer ou signaler ${esc(c.pseudo || '')}" aria-haspopup="menu" aria-expanded="${S.cardMenu === 'chat'}">${ICON.warn}</button>
+        ${S.cardMenu === 'chat' ? `<div class="card-menu" role="menu">
+          <button role="menuitem" data-a="askBlock" data-chat="1">Bloquer</button>
+          <button role="menuitem" data-a="askReport" data-chat="1">Signaler</button>
+        </div>` : ''}
+      </span>
     </div>
     <div class="stack" style="gap:4px;padding:0 4px">
       <h2>${esc(c.pseudo || '')}</h2>
@@ -1082,6 +1088,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) poll
 
 // Qui bloquer ou signaler : une personne d'« Autour de toi » (d.i) ou l'auteur d'un bonbon reçu (d.id)
 function reportTarget(d) {
+  if (d.chat && S.chat) return { sessionId: S.chat.session_id, pseudo: S.chat.pseudo, fromChat: true };
   if (d.id) { const m = S.inbox.find((x) => x.id === d.id); return { bonbonId: d.id, pseudo: m ? m.sender_pseudo : 'Cette personne' }; }
   const p = S.people[+d.i]; return { sessionId: p.session_id, pseudo: p.pseudo };
 }
