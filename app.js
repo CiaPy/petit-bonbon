@@ -12,7 +12,7 @@ const sb = CONFIGURED ? createClient(C.SUPABASE_URL, C.SUPABASE_ANON_KEY) : null
 // L'ordre compte : la base stocke l'indice (0 à 11). Ne pas réordonner, seulement ajouter à la fin (max 12).
 const COMPLIMENTS = [
   'Ton énergie se ressent jusqu’ici.',
-  'Ton pseudo m’a fait sourire.',
+  'J’aime beaucoup ton pseudo.',
   'Ta façon de te présenter m’a fait sourire.',
   'Merci d’être là ce soir.',
   'Ton humeur du jour est contagieuse.',
